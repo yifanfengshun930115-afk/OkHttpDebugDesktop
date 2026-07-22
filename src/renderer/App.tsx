@@ -1,19 +1,482 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import {
+  AlertTriangle,
+  Cable,
+  CheckCircle2,
+  Download,
+  Filter,
+  ListRestart,
+  MonitorSmartphone,
+  RefreshCw,
+  Search,
+  Server,
+  Trash2,
+  Usb
+} from 'lucide-react';
+import type { AdbDevice, CaptureRecord, DesktopState, HeadersRecord } from '../shared/protocol.js';
+import { DEFAULT_WS_PORT } from '../shared/protocol.js';
+import { sampleCaptures } from './sampleCaptures.js';
 import './styles.css';
 
-function App() {
+type DetailTab = 'overview' | 'headers' | 'request' | 'response' | 'timing' | 'error';
+type StatusFilter = 'all' | 'success' | 'error' | 'failed';
+
+const fallbackState: DesktopState = {
+  server: {
+    port: DEFAULT_WS_PORT,
+    running: false,
+    connectionCount: 0,
+    connections: []
+  },
+  captures: sampleCaptures
+};
+
+function methodClass(method: string) {
+  return `method method-${method.toLowerCase()}`;
+}
+
+function statusLabel(capture: CaptureRecord) {
+  if (capture.error) {
+    return 'ERR';
+  }
+
+  if (capture.response) {
+    return String(capture.response.code);
+  }
+
+  return '...';
+}
+
+function captureStatus(capture: CaptureRecord): StatusFilter {
+  if (capture.error) {
+    return 'failed';
+  }
+
+  const code = capture.response?.code;
+  if (code && code >= 200 && code < 400) {
+    return 'success';
+  }
+
+  if (code && code >= 400) {
+    return 'error';
+  }
+
+  return 'all';
+}
+
+function formatTime(epochMs: number) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  }).format(new Date(epochMs));
+}
+
+function formatDuration(durationMs?: number) {
+  if (durationMs === undefined) {
+    return '-';
+  }
+  return durationMs >= 1000 ? `${(durationMs / 1000).toFixed(2)} s` : `${Math.round(durationMs)} ms`;
+}
+
+function getHost(url: string) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+function getPath(url: string) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return url;
+  }
+}
+
+function flattenHeaders(headers: HeadersRecord) {
+  return Object.entries(headers).map(([name, value]) => ({
+    name,
+    value: Array.isArray(value) ? value.join(', ') : value
+  }));
+}
+
+function bodyText(value?: string) {
+  return value?.trim() ? value : '(empty)';
+}
+
+function JsonBlock({ value }: { value: unknown }) {
+  return <pre className="code-block">{typeof value === 'string' ? value : JSON.stringify(value, null, 2)}</pre>;
+}
+
+function HeaderTable({ title, headers }: { title: string; headers: HeadersRecord }) {
+  const rows = flattenHeaders(headers);
   return (
-    <main className="app-shell">
-      <h1>OkHttp Debug Desktop</h1>
-      <p>Desktop capture console scaffold.</p>
-    </main>
+    <section className="detail-section">
+      <h3>{title}</h3>
+      {rows.length === 0 ? (
+        <p className="empty-text">No headers.</p>
+      ) : (
+        <div className="header-table">
+          {rows.map((header) => (
+            <React.Fragment key={`${title}-${header.name}`}>
+              <div className="header-name">{header.name}</div>
+              <div className="header-value">{header.value}</div>
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
-createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+function StatusPill({ capture }: { capture: CaptureRecord }) {
+  const status = captureStatus(capture);
+  return <span className={`status-pill status-${status}`}>{statusLabel(capture)}</span>;
+}
 
+function App() {
+  const [state, setState] = useState<DesktopState>(fallbackState);
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [selectedId, setSelectedId] = useState<string>(sampleCaptures[0]?.id ?? '');
+  const [activeTab, setActiveTab] = useState<DetailTab>('overview');
+  const [adbDevices, setAdbDevices] = useState<AdbDevice[]>([]);
+  const [adbMessage, setAdbMessage] = useState('');
+  const [exportMessage, setExportMessage] = useState('');
+
+  const api = window.okhttpDebug;
+
+  useEffect(() => {
+    if (!api) {
+      return undefined;
+    }
+
+    void api.getState().then((nextState) => {
+      setState(nextState);
+      if (nextState.captures[0]) {
+        setSelectedId(nextState.captures[0].id);
+      }
+    });
+
+    return api.onStateChanged((nextState) => {
+      setState(nextState);
+      setSelectedId((current) => {
+        if (nextState.captures.some((capture) => capture.id === current)) {
+          return current;
+        }
+        return nextState.captures[0]?.id ?? '';
+      });
+    });
+  }, [api]);
+
+  const captures = state.captures.length > 0 ? state.captures : sampleCaptures;
+
+  const filteredCaptures = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return captures.filter((capture) => {
+      const matchesStatus = statusFilter === 'all' || captureStatus(capture) === statusFilter;
+      if (!matchesStatus) {
+        return false;
+      }
+
+      if (!normalized) {
+        return true;
+      }
+
+      const haystack = [
+        capture.id,
+        capture.request.method,
+        capture.request.url,
+        capture.response?.code,
+        capture.error?.message,
+        capture.source?.app?.packageName,
+        JSON.stringify(capture.tags ?? {})
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(normalized);
+    });
+  }, [captures, query, statusFilter]);
+
+  const selected = captures.find((capture) => capture.id === selectedId) ?? filteredCaptures[0] ?? captures[0];
+
+  async function refreshDevices() {
+    if (!api) {
+      setAdbMessage('ADB is available only in the Electron app.');
+      return;
+    }
+    const result = await api.adbListDevices();
+    setAdbDevices(result.devices ?? []);
+    setAdbMessage(result.ok ? `Found ${result.devices?.length ?? 0} device(s).` : result.error ?? result.stderr);
+  }
+
+  async function reversePort(serial?: string) {
+    if (!api) {
+      setAdbMessage('ADB reverse is available only in the Electron app.');
+      return;
+    }
+    const result = await api.adbReverse(serial);
+    setAdbMessage(result.ok ? `Mapped tcp:${state.server.port} for ${serial ?? 'default device'}.` : result.error ?? result.stderr);
+  }
+
+  async function clearCaptures() {
+    if (!api) {
+      setState(fallbackState);
+      return;
+    }
+    const nextState = await api.clearCaptures();
+    setState(nextState);
+  }
+
+  async function exportJson() {
+    if (!api) {
+      setExportMessage('Export is available only in the Electron app.');
+      return;
+    }
+    const result = await api.exportJson();
+    if (result.canceled) {
+      setExportMessage('Export canceled.');
+    } else if (result.ok) {
+      setExportMessage(`Exported ${result.count ?? 0} capture(s).`);
+    } else {
+      setExportMessage(result.error ?? 'Export failed.');
+    }
+  }
+
+  const live = state.server.running && state.server.error === undefined;
+
+  return (
+    <div className="app">
+      <aside className="sidebar">
+        <div className="brand">
+          <MonitorSmartphone size={26} />
+          <div>
+            <h1>OkHttp Debug</h1>
+            <span>Desktop Console</span>
+          </div>
+        </div>
+
+        <section className="panel">
+          <div className="panel-title">
+            <Server size={16} />
+            Server
+          </div>
+          <div className="server-line">
+            <span className={`dot ${live ? 'dot-live' : 'dot-idle'}`} />
+            <span>{live ? 'Listening' : 'Offline'}</span>
+            <strong>127.0.0.1:{state.server.port}</strong>
+          </div>
+          {state.server.error ? <p className="error-text">{state.server.error}</p> : null}
+          <div className="metric-grid">
+            <div>
+              <span>Connections</span>
+              <strong>{state.server.connectionCount}</strong>
+            </div>
+            <div>
+              <span>Captures</span>
+              <strong>{captures.length}</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-title">
+            <Usb size={16} />
+            USB
+          </div>
+          <div className="button-row">
+            <button type="button" onClick={refreshDevices}>
+              <RefreshCw size={15} />
+              Devices
+            </button>
+            <button type="button" onClick={() => reversePort(adbDevices[0]?.serial)}>
+              <Cable size={15} />
+              Reverse
+            </button>
+          </div>
+          {adbDevices.length > 0 ? (
+            <div className="device-list">
+              {adbDevices.map((device) => (
+                <button key={device.serial} type="button" onClick={() => reversePort(device.serial)}>
+                  <span>{device.serial}</span>
+                  <small>{device.state}</small>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {adbMessage ? <p className="hint-text">{adbMessage}</p> : null}
+        </section>
+
+        <section className="panel">
+          <div className="panel-title">
+            <CheckCircle2 size={16} />
+            Sessions
+          </div>
+          {state.server.connections.length === 0 ? (
+            <p className="empty-text">No Android client connected.</p>
+          ) : (
+            <div className="session-list">
+              {state.server.connections.map((connection) => (
+                <div key={connection.id} className="session-item">
+                  <strong>{connection.app?.packageName ?? connection.id}</strong>
+                  <span>{connection.device ? `${connection.device.manufacturer ?? ''} ${connection.device.model ?? ''}` : 'Waiting for hello'}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </aside>
+
+      <main className="workspace">
+        <header className="toolbar">
+          <div className="search-box">
+            <Search size={17} />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search URL, method, tag, error" />
+          </div>
+          <div className="segmented" aria-label="Status filter">
+            {(['all', 'success', 'error', 'failed'] as StatusFilter[]).map((filter) => (
+              <button
+                key={filter}
+                type="button"
+                className={filter === statusFilter ? 'active' : ''}
+                onClick={() => setStatusFilter(filter)}
+              >
+                <Filter size={14} />
+                {filter}
+              </button>
+            ))}
+          </div>
+          <button type="button" onClick={clearCaptures}>
+            <Trash2 size={16} />
+            Clear
+          </button>
+          <button type="button" onClick={exportJson}>
+            <Download size={16} />
+            Export
+          </button>
+        </header>
+        {exportMessage ? <div className="notice">{exportMessage}</div> : null}
+
+        <div className="content-grid">
+          <section className="request-list">
+            {filteredCaptures.length === 0 ? (
+              <div className="empty-state">
+                <ListRestart size={32} />
+                <p>No captures match the current filter.</p>
+              </div>
+            ) : (
+              filteredCaptures.map((capture) => (
+                <button
+                  key={capture.id}
+                  type="button"
+                  className={`request-row ${selected?.id === capture.id ? 'selected' : ''}`}
+                  onClick={() => {
+                    setSelectedId(capture.id);
+                    setActiveTab('overview');
+                  }}
+                >
+                  <div className="row-top">
+                    <span className={methodClass(capture.request.method)}>{capture.request.method}</span>
+                    <StatusPill capture={capture} />
+                    <span className="duration">{formatDuration(capture.durationMs)}</span>
+                  </div>
+                  <strong>{getPath(capture.request.url)}</strong>
+                  <span>{getHost(capture.request.url)}</span>
+                  <small>{formatTime(capture.startedAtEpochMs)}</small>
+                </button>
+              ))
+            )}
+          </section>
+
+          <section className="details">
+            {selected ? (
+              <>
+                <div className="details-header">
+                  <div>
+                    <div className="details-title">
+                      <span className={methodClass(selected.request.method)}>{selected.request.method}</span>
+                      <h2>{getPath(selected.request.url)}</h2>
+                      <StatusPill capture={selected} />
+                    </div>
+                    <p>{selected.request.url}</p>
+                  </div>
+                  {selected.error ? <AlertTriangle className="warning-icon" size={22} /> : null}
+                </div>
+
+                <nav className="tabs">
+                  {(['overview', 'headers', 'request', 'response', 'timing', 'error'] as DetailTab[]).map((tab) => (
+                    <button key={tab} type="button" className={activeTab === tab ? 'active' : ''} onClick={() => setActiveTab(tab)}>
+                      {tab}
+                    </button>
+                  ))}
+                </nav>
+
+                <div className="tab-panel">
+                  {activeTab === 'overview' ? (
+                    <div className="overview-grid">
+                      <div><span>Started</span><strong>{new Date(selected.startedAtEpochMs).toLocaleString()}</strong></div>
+                      <div><span>Duration</span><strong>{formatDuration(selected.durationMs)}</strong></div>
+                      <div><span>Response</span><strong>{selected.response ? `${selected.response.code} ${selected.response.message}` : '-'}</strong></div>
+                      <div><span>Content Type</span><strong>{selected.response?.contentType ?? selected.request.contentType ?? '-'}</strong></div>
+                      <div><span>App</span><strong>{selected.source?.app?.packageName ?? '-'}</strong></div>
+                      <div><span>Device</span><strong>{selected.source?.device ? `${selected.source.device.manufacturer ?? ''} ${selected.source.device.model ?? ''}` : '-'}</strong></div>
+                      <div className="wide"><span>Tags</span><JsonBlock value={selected.tags ?? {}} /></div>
+                    </div>
+                  ) : null}
+
+                  {activeTab === 'headers' ? (
+                    <>
+                      <HeaderTable title="Request Headers" headers={selected.request.headers} />
+                      {selected.response ? <HeaderTable title="Response Headers" headers={selected.response.headers} /> : null}
+                    </>
+                  ) : null}
+
+                  {activeTab === 'request' ? (
+                    <section className="detail-section">
+                      <h3>Request Body {selected.request.bodyTruncated ? <span className="truncated">truncated</span> : null}</h3>
+                      <JsonBlock value={bodyText(selected.request.body)} />
+                    </section>
+                  ) : null}
+
+                  {activeTab === 'response' ? (
+                    <section className="detail-section">
+                      <h3>Response Body {selected.response?.bodyTruncated ? <span className="truncated">truncated</span> : null}</h3>
+                      <JsonBlock value={bodyText(selected.response?.body)} />
+                    </section>
+                  ) : null}
+
+                  {activeTab === 'timing' ? (
+                    <section className="detail-section">
+                      <h3>Timing</h3>
+                      <JsonBlock value={selected.timing ?? {}} />
+                    </section>
+                  ) : null}
+
+                  {activeTab === 'error' ? (
+                    <section className="detail-section">
+                      <h3>Error</h3>
+                      {selected.error ? <JsonBlock value={selected.error} /> : <p className="empty-text">No error captured.</p>}
+                    </section>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <div className="empty-state">
+                <ListRestart size={36} />
+                <p>Select a capture to inspect it.</p>
+              </div>
+            )}
+          </section>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+createRoot(document.getElementById('root') as HTMLElement).render(<App />);
