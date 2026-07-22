@@ -295,6 +295,11 @@ function App() {
             </p>
           ) : null}
           {state.server.error ? <p className="error-text">{state.server.error}</p> : null}
+          {state.server.captureLogPath ? (
+            <p className="hint-text log-path" title={state.server.captureLogPath}>
+              Log {state.server.captureLogPath}
+            </p>
+          ) : null}
           <div className="metric-grid">
             <div>
               <span>Connections</span>

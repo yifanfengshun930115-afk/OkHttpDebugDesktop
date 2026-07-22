@@ -2,20 +2,24 @@ import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { IPC_CHANNELS } from '../shared/ipc.js';
-import { DEFAULT_WS_PORT } from '../shared/protocol.js';
+import { DEFAULT_DEVICE_WS_PORT, DEFAULT_WS_PORT, DEFAULT_WS_PORT_RANGE_END } from '../shared/protocol.js';
+import { CaptureLogWriter } from './captureLogWriter.js';
 import { CaptureServer } from './captureServer.js';
 import { registerIpcHandlers } from './ipcHandlers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+let captureServer: CaptureServer | undefined;
 
 function broadcastState() {
+  if (!captureServer) {
+    return;
+  }
+
   const state = captureServer.getState();
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send(IPC_CHANNELS.stateChanged, state);
   }
 }
-
-const captureServer = new CaptureServer(DEFAULT_WS_PORT, broadcastState);
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -29,7 +33,9 @@ function createWindow() {
   });
 
   win.webContents.once('did-finish-load', () => {
-    win.webContents.send(IPC_CHANNELS.stateChanged, captureServer.getState());
+    if (captureServer) {
+      win.webContents.send(IPC_CHANNELS.stateChanged, captureServer.getState());
+    }
   });
 
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
@@ -41,6 +47,14 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  const captureLogWriter = new CaptureLogWriter(path.join(app.getPath('userData'), 'logs'));
+  captureServer = new CaptureServer(
+    DEFAULT_WS_PORT,
+    broadcastState,
+    DEFAULT_WS_PORT_RANGE_END,
+    DEFAULT_DEVICE_WS_PORT,
+    captureLogWriter
+  );
   registerIpcHandlers(captureServer, () => BrowserWindow.getFocusedWindow());
   captureServer.start();
   createWindow();
@@ -59,5 +73,5 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  captureServer.stop();
+  captureServer?.stop();
 });

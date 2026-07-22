@@ -102,6 +102,10 @@ button {
   font-size: 14px;
 }
 
+.log-path {
+  overflow-wrap: anywhere;
+}
+
 .dot {
   width: 8px;
   height: 8px;

@@ -11,6 +11,7 @@ import {
   type PongMessage,
   type ServerState
 } from '../shared/protocol.js';
+import type { CaptureLogWriter } from './captureLogWriter.js';
 import { parseClientMessage } from './messageValidation.js';
 
 const MAX_CAPTURE_RECORDS = 5000;
@@ -33,7 +34,8 @@ export class CaptureServer {
     private readonly preferredPort: number = DEFAULT_WS_PORT,
     private readonly onChange: () => void,
     private readonly portRangeEnd: number = DEFAULT_WS_PORT_RANGE_END,
-    private readonly devicePort: number = DEFAULT_DEVICE_WS_PORT
+    private readonly devicePort: number = DEFAULT_DEVICE_WS_PORT,
+    private readonly captureLogWriter?: CaptureLogWriter
   ) {
     this.activePort = preferredPort;
   }
@@ -89,14 +91,21 @@ export class CaptureServer {
       };
 
       this.connections.set(id, connection);
+      this.captureLogWriter?.log({
+        type: 'connection',
+        connection: this.toConnectionInfo(connection),
+        url: request.url
+      });
       this.onChange();
 
       socket.on('message', (data) => this.handleMessage(connection, data.toString('utf8')));
       socket.on('close', () => {
+        this.captureLogWriter?.log({ type: 'close', connection: this.toConnectionInfo(connection) });
         this.connections.delete(id);
         this.onChange();
       });
       socket.on('error', () => {
+        this.captureLogWriter?.log({ type: 'socket_error', connection: this.toConnectionInfo(connection) });
         this.connections.delete(id);
         this.onChange();
       });
@@ -134,6 +143,7 @@ export class CaptureServer {
       port: this.activePort,
       preferredPort: this.preferredPort,
       devicePort: this.devicePort,
+      captureLogPath: this.captureLogWriter?.logPath,
       portRange: {
         start: this.preferredPort,
         end: this.portRangeEnd
@@ -157,6 +167,14 @@ export class CaptureServer {
         connection.device = message.device;
         connection.protocolVersion = message.protocolVersion;
         connection.tokenPresent = Boolean(message.token);
+        this.captureLogWriter?.log({
+          type: 'hello',
+          connection: this.toConnectionInfo(connection),
+          app: message.app,
+          device: message.device,
+          sessionId: message.sessionId,
+          tokenPresent: connection.tokenPresent
+        });
 
         const ack: HelloAckMessage = {
           type: 'hello_ack',
@@ -170,7 +188,7 @@ export class CaptureServer {
       }
 
       if (message.type === 'capture') {
-        this.captures.unshift({
+        const capture: CaptureRecord = {
           ...message,
           connectionId: connection.id,
           receivedAtEpochMs: Date.now(),
@@ -178,7 +196,10 @@ export class CaptureServer {
             app: connection.app,
             device: connection.device
           }
-        });
+        };
+
+        this.captures.unshift(capture);
+        this.captureLogWriter?.log({ type: 'capture', capture });
 
         if (this.captures.length > MAX_CAPTURE_RECORDS) {
           this.captures.length = MAX_CAPTURE_RECORDS;
@@ -199,7 +220,17 @@ export class CaptureServer {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown WebSocket message error.';
+      this.captureLogWriter?.log({
+        type: 'message_error',
+        connection: this.toConnectionInfo(connection),
+        message,
+        rawLength: raw.length
+      });
       connection.socket.send(JSON.stringify({ type: 'error', message }));
     }
+  }
+
+  private toConnectionInfo({ socket: _socket, ...connection }: InternalConnection): ConnectionInfo {
+    return { ...connection };
   }
 }

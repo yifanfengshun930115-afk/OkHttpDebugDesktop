@@ -120,6 +120,7 @@ export interface ServerState {
   port: number;
   preferredPort: number;
   devicePort: number;
+  captureLogPath?: string;
   portRange: {
     start: number;
     end: number;
