@@ -85,6 +85,14 @@ export function parseClientMessage(raw: string): HelloMessage | CaptureMessage |
       }
     }
 
+    if (parsed.groupId !== undefined && typeof parsed.groupId !== 'string') {
+      throw new Error('capture.groupId must be a string when provided.');
+    }
+
+    if (parsed.stage !== undefined && typeof parsed.stage !== 'string') {
+      throw new Error('capture.stage must be a string when provided.');
+    }
+
     if (parsed.error !== undefined) {
       if (!isRecord(parsed.error) || typeof parsed.error.type !== 'string' || typeof parsed.error.message !== 'string') {
         throw new Error('capture.error requires type and message fields.');
@@ -96,4 +104,3 @@ export function parseClientMessage(raw: string): HelloMessage | CaptureMessage |
 
   throw new Error(`Unsupported message type: ${parsed.type}.`);
 }
-

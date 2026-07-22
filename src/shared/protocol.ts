@@ -7,6 +7,7 @@ export type ProtocolMessageType = 'hello' | 'capture' | 'ping' | 'pong';
 
 export type HeaderValue = string | string[];
 export type HeadersRecord = Record<string, HeaderValue>;
+export type CaptureStage = 'plain' | 'wire' | string;
 
 export interface AndroidAppInfo {
   packageName: string;
@@ -64,6 +65,8 @@ export interface CaptureMessage {
   id: string;
   sessionId: string;
   startedAtEpochMs: number;
+  groupId?: string;
+  stage?: CaptureStage;
   durationMs?: number;
   request: HttpPayload;
   response?: HttpResponsePayload;

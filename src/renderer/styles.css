@@ -342,7 +342,8 @@ button {
 }
 
 .method,
-.status-pill {
+.status-pill,
+.stage-pill {
   display: inline-flex;
   align-items: center;
   height: 22px;
@@ -393,9 +394,20 @@ button {
   color: #374151;
 }
 
+.stage-pill {
+  background: #eef2ff;
+  color: #3730a3;
+  text-transform: capitalize;
+}
+
+.stage-wire {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .details {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 
 .details-header {
@@ -425,6 +437,28 @@ button {
 .warning-icon {
   flex: 0 0 auto;
   color: #b42318;
+}
+
+.stage-switch {
+  display: flex;
+  gap: 6px;
+  padding: 10px 14px 0;
+}
+
+.stage-switch button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid #d6dee8;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #334155;
+  font-weight: 700;
+}
+
+.stage-switch button.active {
+  border-color: #0f766e;
+  background: #ccfbf1;
+  color: #0f766e;
 }
 
 .tabs {
