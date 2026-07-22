@@ -61,6 +61,15 @@ const fallbackState: DesktopState = {
     port: DEFAULT_WS_PORT,
     preferredPort: DEFAULT_WS_PORT,
     devicePort: DEFAULT_WS_PORT,
+    usbReverse: {
+      enabled: true,
+      active: false,
+      hostPort: DEFAULT_WS_PORT,
+      devicePort: DEFAULT_WS_PORT,
+      intervalMs: 15000,
+      devices: [],
+      message: 'USB auto reverse is ready.'
+    },
     portRange: {
       start: DEFAULT_WS_PORT,
       end: DEFAULT_WS_PORT_RANGE_END
@@ -855,6 +864,41 @@ function App() {
     );
   }
 
+  async function repairUsbMappings() {
+    if (!api) {
+      setAdbMessage('ADB reverse is available only in the Electron app.');
+      return;
+    }
+
+    let devices = adbDevices;
+    if (devices.length === 0) {
+      const result = await api.adbListDevices();
+      devices = result.devices ?? [];
+      setAdbDevices(devices);
+      if (!result.ok) {
+        setAdbMessage(result.error ?? result.adb?.installHint ?? result.stderr);
+        return;
+      }
+    }
+
+    const authorized = devices.filter((device) => device.state === 'device');
+    if (authorized.length === 0) {
+      setAdbMessage('No authorized USB devices. Confirm the Android USB debugging prompt, then repair again.');
+      return;
+    }
+
+    const results = await Promise.all(
+      authorized.map((device) => api.adbReverse(device.serial, state.server.port, state.server.devicePort))
+    );
+    const okCount = results.filter((result) => result.ok).length;
+    const firstFailure = results.find((result) => !result.ok);
+    setAdbMessage(
+      okCount === authorized.length
+        ? `Repaired USB reverse for ${okCount}/${authorized.length} device(s).`
+        : firstFailure?.error ?? firstFailure?.stderr ?? `Repaired USB reverse for ${okCount}/${authorized.length} device(s).`
+    );
+  }
+
   async function clearCaptures() {
     if (!api) {
       setState(fallbackState);
@@ -883,6 +927,16 @@ function App() {
 
   const live = state.server.running && state.server.error === undefined;
   const serverLabel = state.server.starting ? 'Starting' : live ? 'Listening' : 'Offline';
+  const usbReverse = state.server.usbReverse;
+  const mappedUsbCount = usbReverse.devices.filter((device) => device.mapped).length;
+  const authorizedUsbCount = usbReverse.devices.filter((device) => device.state === 'device').length;
+  const usbStatusClass = usbReverse.active
+    ? 'checking'
+    : usbReverse.error
+      ? 'error'
+      : mappedUsbCount > 0
+        ? 'ready'
+        : 'idle';
 
   return (
     <div className="app">
@@ -946,14 +1000,42 @@ function App() {
               <RefreshCw size={15} />
               Devices
             </button>
-            <button type="button" onClick={() => reversePort(adbDevices[0]?.serial)}>
+            <button type="button" onClick={repairUsbMappings}>
               <Cable size={15} />
-              Reverse
+              Repair
             </button>
+          </div>
+          <div className={`usb-auto-status usb-${usbStatusClass}`}>
+            <span className="dot" />
+            <strong>{usbReverse.active ? 'Checking USB mapping' : usbReverse.error ? 'USB mapping needs attention' : mappedUsbCount > 0 ? 'USB mapping ready' : 'Waiting for USB device'}</strong>
+            <small>{`tcp:${usbReverse.devicePort} -> tcp:${usbReverse.hostPort}`}</small>
+          </div>
+          <p className="hint-text">{usbReverse.message}</p>
+          {usbReverse.error ? <p className="error-text">{usbReverse.error}</p> : null}
+          {usbReverse.adb ? (
+            <p className="hint-text">
+              ADB {usbReverse.adb.available ? 'available' : 'missing'}
+              {usbReverse.adb.source ? ` via ${usbReverse.adb.source}` : ''}
+              {usbReverse.lastSuccessEpochMs ? ` · last mapped ${formatTime(usbReverse.lastSuccessEpochMs)}` : ''}
+            </p>
+          ) : null}
+          <div className="usb-summary">
+            <span>{mappedUsbCount}/{authorizedUsbCount || usbReverse.devices.length} mapped</span>
+            <span>{Math.round(usbReverse.intervalMs / 1000)}s auto check</span>
           </div>
           <p className="hint-text">
             Android connects to tcp:{state.server.devicePort}; ADB forwards it to desktop tcp:{state.server.port}.
           </p>
+          {usbReverse.devices.length > 0 ? (
+            <div className="device-list auto-device-list">
+              {usbReverse.devices.map((device) => (
+                <button key={`auto-${device.serial}`} type="button" onClick={() => reversePort(device.serial)}>
+                  <span>{device.serial}</span>
+                  <small>{device.mapped ? 'mapped' : device.error ?? device.state}</small>
+                </button>
+              ))}
+            </div>
+          ) : null}
           {adbDevices.length > 0 ? (
             <div className="device-list">
               {adbDevices.map((device) => (

@@ -9,7 +9,8 @@ import {
   type DesktopState,
   type HelloAckMessage,
   type PongMessage,
-  type ServerState
+  type ServerState,
+  type UsbReverseState
 } from '../shared/protocol.js';
 import type { CaptureLogWriter } from './captureLogWriter.js';
 import { parseClientMessage } from './messageValidation.js';
@@ -29,6 +30,7 @@ export class CaptureServer {
   private starting = false;
   private activePort: number;
   private connectionSeq = 0;
+  private usbReverseStateProvider: () => UsbReverseState;
 
   constructor(
     private readonly preferredPort: number = DEFAULT_WS_PORT,
@@ -38,6 +40,19 @@ export class CaptureServer {
     private readonly captureLogWriter?: CaptureLogWriter
   ) {
     this.activePort = preferredPort;
+    this.usbReverseStateProvider = () => ({
+      enabled: false,
+      active: false,
+      hostPort: this.activePort,
+      devicePort: this.devicePort,
+      intervalMs: 0,
+      devices: [],
+      message: 'USB auto reverse is not configured.'
+    });
+  }
+
+  setUsbReverseStateProvider(provider: () => UsbReverseState) {
+    this.usbReverseStateProvider = provider;
   }
 
   start() {
@@ -136,6 +151,14 @@ export class CaptureServer {
     };
   }
 
+  getReversePorts() {
+    return {
+      serverRunning: Boolean(this.wss),
+      hostPort: this.activePort,
+      devicePort: this.devicePort
+    };
+  }
+
   private getServerState(): ServerState {
     const connections = [...this.connections.values()].map(({ socket: _socket, ...connection }) => connection);
 
@@ -143,6 +166,7 @@ export class CaptureServer {
       port: this.activePort,
       preferredPort: this.preferredPort,
       devicePort: this.devicePort,
+      usbReverse: this.usbReverseStateProvider(),
       captureLogPath: this.captureLogWriter?.logPath,
       portRange: {
         start: this.preferredPort,

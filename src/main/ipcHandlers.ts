@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { IPC_CHANNELS } from '../shared/ipc.js';
 import { PROTOCOL_VERSION, type ExportResult } from '../shared/protocol.js';
 import { listAdbDevices, reverseDebugPort } from './adb.js';
+import type { AdbReverseManager } from './adbReverseManager.js';
 import type { CaptureServer } from './captureServer.js';
 
 function exportFileName() {
@@ -10,7 +11,11 @@ function exportFileName() {
   return `okhttp-captures-${stamp}.json`;
 }
 
-export function registerIpcHandlers(server: CaptureServer, getFocusedWindow: () => BrowserWindow | null) {
+export function registerIpcHandlers(
+  server: CaptureServer,
+  getFocusedWindow: () => BrowserWindow | null,
+  adbReverseManager?: AdbReverseManager
+) {
   ipcMain.handle(IPC_CHANNELS.stateGet, () => server.getState());
   ipcMain.handle(IPC_CHANNELS.capturesClear, () => server.clearCaptures());
 
@@ -56,7 +61,9 @@ export function registerIpcHandlers(server: CaptureServer, getFocusedWindow: () 
   });
 
   ipcMain.handle(IPC_CHANNELS.adbListDevices, () => listAdbDevices());
-  ipcMain.handle(IPC_CHANNELS.adbReverse, (_event, serial?: string, hostPort?: number, devicePort?: number) =>
-    reverseDebugPort(serial, hostPort, devicePort)
-  );
+  ipcMain.handle(IPC_CHANNELS.adbReverse, async (_event, serial?: string, hostPort?: number, devicePort?: number) => {
+    const result = await reverseDebugPort(serial, hostPort, devicePort);
+    void adbReverseManager?.ensureNow('manual');
+    return result;
+  });
 }

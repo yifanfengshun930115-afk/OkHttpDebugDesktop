@@ -123,6 +123,7 @@ export interface ServerState {
   port: number;
   preferredPort: number;
   devicePort: number;
+  usbReverse: UsbReverseState;
   captureLogPath?: string;
   portRange: {
     start: number;
@@ -170,4 +171,28 @@ export interface AdbCommandResult {
   error?: string;
   devices?: AdbDevice[];
   adb?: AdbInfo;
+}
+
+export interface UsbReverseDeviceState {
+  serial: string;
+  state: string;
+  description: string;
+  mapped: boolean;
+  lastAttemptEpochMs: number;
+  error?: string;
+  stderr?: string;
+}
+
+export interface UsbReverseState {
+  enabled: boolean;
+  active: boolean;
+  hostPort: number;
+  devicePort: number;
+  intervalMs: number;
+  lastAttemptEpochMs?: number;
+  lastSuccessEpochMs?: number;
+  adb?: AdbInfo;
+  devices: UsbReverseDeviceState[];
+  message?: string;
+  error?: string;
 }

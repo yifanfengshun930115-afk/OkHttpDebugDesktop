@@ -5,10 +5,12 @@ import { IPC_CHANNELS } from '../shared/ipc.js';
 import { DEFAULT_DEVICE_WS_PORT, DEFAULT_WS_PORT, DEFAULT_WS_PORT_RANGE_END } from '../shared/protocol.js';
 import { CaptureLogWriter } from './captureLogWriter.js';
 import { CaptureServer } from './captureServer.js';
+import { AdbReverseManager } from './adbReverseManager.js';
 import { registerIpcHandlers } from './ipcHandlers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let captureServer: CaptureServer | undefined;
+let adbReverseManager: AdbReverseManager | undefined;
 
 function broadcastState() {
   if (!captureServer) {
@@ -55,8 +57,23 @@ app.whenReady().then(() => {
     DEFAULT_DEVICE_WS_PORT,
     captureLogWriter
   );
-  registerIpcHandlers(captureServer, () => BrowserWindow.getFocusedWindow());
+  adbReverseManager = new AdbReverseManager(() => captureServer?.getReversePorts() ?? {
+    serverRunning: false,
+    hostPort: DEFAULT_WS_PORT,
+    devicePort: DEFAULT_DEVICE_WS_PORT
+  }, broadcastState);
+  captureServer.setUsbReverseStateProvider(() => adbReverseManager?.getState() ?? {
+    enabled: false,
+    active: false,
+    hostPort: DEFAULT_WS_PORT,
+    devicePort: DEFAULT_DEVICE_WS_PORT,
+    intervalMs: 0,
+    devices: [],
+    message: 'USB auto reverse is not configured.'
+  });
+  registerIpcHandlers(captureServer, () => BrowserWindow.getFocusedWindow(), adbReverseManager);
   captureServer.start();
+  adbReverseManager.start();
   createWindow();
 });
 
@@ -73,5 +90,6 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  adbReverseManager?.stop();
   captureServer?.stop();
 });
