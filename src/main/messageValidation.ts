@@ -22,6 +22,10 @@ function isProtocolVersion(value: unknown): value is typeof PROTOCOL_VERSION {
   return value === PROTOCOL_VERSION;
 }
 
+function isCaptureStage(value: unknown): value is 'plain' | 'wire' {
+  return value === 'plain' || value === 'wire';
+}
+
 export function parseClientMessage(raw: string): HelloMessage | CaptureMessage | { type: 'ping' } | { type: 'pong' } {
   let parsed: unknown;
 
@@ -72,25 +76,19 @@ export function parseClientMessage(raw: string): HelloMessage | CaptureMessage |
       typeof parsed.id !== 'string' ||
       typeof parsed.sessionId !== 'string' ||
       typeof parsed.startedAtEpochMs !== 'number' ||
+      typeof parsed.groupId !== 'string' ||
+      !isCaptureStage(parsed.stage) ||
       typeof parsed.request.method !== 'string' ||
       typeof parsed.request.url !== 'string' ||
       !isHeaders(parsed.request.headers)
     ) {
-      throw new Error('capture requires id, sessionId, startedAtEpochMs, and request fields.');
+      throw new Error('capture requires id, sessionId, startedAtEpochMs, groupId, stage, and request fields.');
     }
 
     if (parsed.response !== undefined) {
       if (!isRecord(parsed.response) || typeof parsed.response.code !== 'number' || !isHeaders(parsed.response.headers)) {
         throw new Error('capture.response requires code and headers fields.');
       }
-    }
-
-    if (parsed.groupId !== undefined && typeof parsed.groupId !== 'string') {
-      throw new Error('capture.groupId must be a string when provided.');
-    }
-
-    if (parsed.stage !== undefined && typeof parsed.stage !== 'string') {
-      throw new Error('capture.stage must be a string when provided.');
     }
 
     if (parsed.error !== undefined) {

@@ -151,11 +151,11 @@ function StatusPill({ capture }: { capture: CaptureRecord }) {
 }
 
 function captureGroupId(capture: CaptureRecord) {
-  return capture.groupId ?? capture.id;
+  return capture.groupId;
 }
 
 function captureStageKey(capture: CaptureRecord) {
-  return capture.stage ?? 'single';
+  return capture.stage;
 }
 
 function captureStageLabel(capture: CaptureRecord) {
@@ -166,16 +166,12 @@ function captureStageLabel(capture: CaptureRecord) {
   if (stage === 'wire') {
     return 'Wire';
   }
-  if (stage === 'single') {
-    return 'Capture';
-  }
   return stage;
 }
 
 function choosePrimary(records: CaptureRecord[]) {
   return (
     records.find((capture) => capture.stage === 'plain') ??
-    records.find((capture) => capture.stage === undefined) ??
     records.find((capture) => capture.stage === 'wire') ??
     records[0]
   );
@@ -552,7 +548,7 @@ function App() {
                       <div><span>App</span><strong>{selected.source?.app?.packageName ?? '-'}</strong></div>
                       <div><span>Device</span><strong>{selected.source?.device ? `${selected.source.device.manufacturer ?? ''} ${selected.source.device.model ?? ''}` : '-'}</strong></div>
                       <div><span>Stage</span><strong>{captureStageLabel(selected)}</strong></div>
-                      <div><span>Group</span><strong>{selected.groupId ?? selected.id}</strong></div>
+                      <div><span>Group</span><strong>{selected.groupId}</strong></div>
                       <div className="wide"><span>Tags</span><JsonBlock value={selected.tags ?? {}} /></div>
                     </div>
                   ) : null}

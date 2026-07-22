@@ -15,7 +15,10 @@ const device = {
   sdkInt: 35
 };
 
-function capture(partial: Omit<CaptureRecord, 'type' | 'protocolVersion' | 'sessionId' | 'receivedAtEpochMs' | 'source'>): CaptureRecord {
+function capture(
+  partial: Omit<CaptureRecord, 'type' | 'protocolVersion' | 'sessionId' | 'receivedAtEpochMs' | 'source' | 'groupId' | 'stage'> &
+    Partial<Pick<CaptureRecord, 'groupId' | 'stage'>>
+): CaptureRecord {
   return {
     type: 'capture',
     protocolVersion: 1,
@@ -25,7 +28,9 @@ function capture(partial: Omit<CaptureRecord, 'type' | 'protocolVersion' | 'sess
       app,
       device
     },
-    ...partial
+    ...partial,
+    groupId: partial.groupId ?? partial.id,
+    stage: partial.stage ?? 'plain'
   };
 }
 
@@ -391,4 +396,3 @@ export const sampleCaptures: CaptureRecord[] = [
     }
   })
 ];
-
