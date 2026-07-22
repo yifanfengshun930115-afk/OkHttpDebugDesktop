@@ -56,5 +56,7 @@ export function registerIpcHandlers(server: CaptureServer, getFocusedWindow: () 
   });
 
   ipcMain.handle(IPC_CHANNELS.adbListDevices, () => listAdbDevices());
-  ipcMain.handle(IPC_CHANNELS.adbReverse, (_event, serial?: string) => reverseDebugPort(serial));
+  ipcMain.handle(IPC_CHANNELS.adbReverse, (_event, serial?: string, hostPort?: number, devicePort?: number) =>
+    reverseDebugPort(serial, hostPort, devicePort)
+  );
 }

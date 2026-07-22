@@ -1,6 +1,8 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import {
+  DEFAULT_DEVICE_WS_PORT,
   DEFAULT_WS_PORT,
+  DEFAULT_WS_PORT_RANGE_END,
   PROTOCOL_VERSION,
   type CaptureRecord,
   type ConnectionInfo,
@@ -12,6 +14,7 @@ import {
 import { parseClientMessage } from './messageValidation.js';
 
 const MAX_CAPTURE_RECORDS = 5000;
+const LISTEN_HOST = '127.0.0.1';
 
 interface InternalConnection extends ConnectionInfo {
   socket: WebSocket;
@@ -22,31 +25,58 @@ export class CaptureServer {
   private readonly captures: CaptureRecord[] = [];
   private readonly connections = new Map<string, InternalConnection>();
   private serverError?: string;
+  private starting = false;
+  private activePort: number;
   private connectionSeq = 0;
 
   constructor(
-    private readonly port: number = DEFAULT_WS_PORT,
-    private readonly onChange: () => void
-  ) {}
+    private readonly preferredPort: number = DEFAULT_WS_PORT,
+    private readonly onChange: () => void,
+    private readonly portRangeEnd: number = DEFAULT_WS_PORT_RANGE_END,
+    private readonly devicePort: number = DEFAULT_DEVICE_WS_PORT
+  ) {
+    this.activePort = preferredPort;
+  }
 
   start() {
-    if (this.wss) {
+    if (this.wss || this.starting) {
       return;
     }
 
-    this.wss = new WebSocketServer({ host: '127.0.0.1', port: this.port });
+    this.starting = true;
+    this.serverError = undefined;
+    this.tryListen(this.preferredPort);
+  }
 
-    this.wss.on('listening', () => {
+  private tryListen(port: number) {
+    const server = new WebSocketServer({ host: LISTEN_HOST, port });
+
+    server.once('listening', () => {
+      this.wss = server;
+      this.activePort = port;
+      this.starting = false;
       this.serverError = undefined;
+      this.attachConnectionHandler(server);
       this.onChange();
     });
 
-    this.wss.on('error', (error) => {
-      this.serverError = error.message;
+    server.once('error', (error: NodeJS.ErrnoException) => {
+      server.close();
+      if (error.code === 'EADDRINUSE' && port < this.portRangeEnd) {
+        this.tryListen(port + 1);
+        return;
+      }
+      this.starting = false;
+      this.serverError =
+        error.code === 'EADDRINUSE'
+          ? `No free local WebSocket port in ${this.preferredPort}-${this.portRangeEnd}.`
+          : error.message;
       this.onChange();
     });
+  }
 
-    this.wss.on('connection', (socket, request) => {
+  private attachConnectionHandler(server: WebSocketServer) {
+    server.on('connection', (socket, request) => {
       const id = `conn-${++this.connectionSeq}`;
       const now = Date.now();
       const connection: InternalConnection = {
@@ -80,6 +110,7 @@ export class CaptureServer {
     this.connections.clear();
     this.wss?.close();
     this.wss = undefined;
+    this.starting = false;
     this.onChange();
   }
 
@@ -100,8 +131,15 @@ export class CaptureServer {
     const connections = [...this.connections.values()].map(({ socket: _socket, ...connection }) => connection);
 
     return {
-      port: this.port,
+      port: this.activePort,
+      preferredPort: this.preferredPort,
+      devicePort: this.devicePort,
+      portRange: {
+        start: this.preferredPort,
+        end: this.portRangeEnd
+      },
       running: Boolean(this.wss),
+      starting: this.starting,
       error: this.serverError,
       connectionCount: connections.length,
       connections
@@ -165,4 +203,3 @@ export class CaptureServer {
     }
   }
 }
-

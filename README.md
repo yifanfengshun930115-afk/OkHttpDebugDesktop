@@ -22,10 +22,17 @@ The desktop app listens on `ws://127.0.0.1:19090/session?token=<token>`. For USB
 adb reverse tcp:19090 tcp:19090
 ```
 
+If `19090` is busy, the app automatically tries `19091` through `19109`. USB clients can still keep the Android-side port fixed at `19090`; the built-in Reverse action maps `tcp:19090` on the device to the actual desktop port.
+
+The server binds to `127.0.0.1` only. These high, non-privileged ports avoid OS-reserved ranges and are not exposed to the LAN in USB mode.
+
+ADB can be bundled for product builds or discovered from `ADB_PATH`, Android SDK environment variables, Android Studio default SDK paths, and `PATH`. See [docs/ADB.md](docs/ADB.md).
+
 ## Build
 
 ```bash
 npm run build
+npm run prepare:adb
 npm run dist
 ```
 

@@ -1,5 +1,7 @@
 export const PROTOCOL_VERSION = 1 as const;
 export const DEFAULT_WS_PORT = 19090;
+export const DEFAULT_DEVICE_WS_PORT = 19090;
+export const DEFAULT_WS_PORT_RANGE_END = 19109;
 
 export type ProtocolMessageType = 'hello' | 'capture' | 'ping' | 'pong';
 
@@ -116,7 +118,14 @@ export interface ConnectionInfo {
 
 export interface ServerState {
   port: number;
+  preferredPort: number;
+  devicePort: number;
+  portRange: {
+    start: number;
+    end: number;
+  };
   running: boolean;
+  starting?: boolean;
   error?: string;
   connectionCount: number;
   connections: ConnectionInfo[];
@@ -141,11 +150,20 @@ export interface AdbDevice {
   description: string;
 }
 
+export interface AdbInfo {
+  available: boolean;
+  path?: string;
+  source?: string;
+  version?: string;
+  checkedPaths: string[];
+  installHint: string;
+}
+
 export interface AdbCommandResult {
   ok: boolean;
   stdout: string;
   stderr: string;
   error?: string;
   devices?: AdbDevice[];
+  adb?: AdbInfo;
 }
-

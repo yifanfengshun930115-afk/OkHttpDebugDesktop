@@ -15,5 +15,5 @@ export interface DesktopApi {
   clearCaptures(): Promise<DesktopState>;
   exportJson(): Promise<ExportResult>;
   adbListDevices(): Promise<AdbCommandResult>;
-  adbReverse(serial?: string): Promise<AdbCommandResult>;
+  adbReverse(serial?: string, hostPort?: number, devicePort?: number): Promise<AdbCommandResult>;
 }

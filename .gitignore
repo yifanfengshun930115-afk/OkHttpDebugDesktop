@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist-electron/
 release/
+resources/platform-tools/*
+!resources/platform-tools/README.md
 *.log
 .DS_Store
-

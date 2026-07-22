@@ -11,8 +11,8 @@ const api: DesktopApi = {
   clearCaptures: () => ipcRenderer.invoke(IPC_CHANNELS.capturesClear),
   exportJson: () => ipcRenderer.invoke(IPC_CHANNELS.capturesExportJson),
   adbListDevices: () => ipcRenderer.invoke(IPC_CHANNELS.adbListDevices),
-  adbReverse: (serial?: string) => ipcRenderer.invoke(IPC_CHANNELS.adbReverse, serial)
+  adbReverse: (serial?: string, hostPort?: number, devicePort?: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.adbReverse, serial, hostPort, devicePort)
 };
 
 contextBridge.exposeInMainWorld('okhttpDebug', api);
-

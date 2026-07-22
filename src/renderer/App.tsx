@@ -15,7 +15,7 @@ import {
   Usb
 } from 'lucide-react';
 import type { AdbDevice, CaptureRecord, DesktopState, HeadersRecord } from '../shared/protocol.js';
-import { DEFAULT_WS_PORT } from '../shared/protocol.js';
+import { DEFAULT_WS_PORT, DEFAULT_WS_PORT_RANGE_END } from '../shared/protocol.js';
 import { sampleCaptures } from './sampleCaptures.js';
 import './styles.css';
 
@@ -25,6 +25,12 @@ type StatusFilter = 'all' | 'success' | 'error' | 'failed';
 const fallbackState: DesktopState = {
   server: {
     port: DEFAULT_WS_PORT,
+    preferredPort: DEFAULT_WS_PORT,
+    devicePort: DEFAULT_WS_PORT,
+    portRange: {
+      start: DEFAULT_WS_PORT,
+      end: DEFAULT_WS_PORT_RANGE_END
+    },
     running: false,
     connectionCount: 0,
     connections: []
@@ -213,7 +219,13 @@ function App() {
     }
     const result = await api.adbListDevices();
     setAdbDevices(result.devices ?? []);
-    setAdbMessage(result.ok ? `Found ${result.devices?.length ?? 0} device(s).` : result.error ?? result.stderr);
+    if (result.ok) {
+      setAdbMessage(
+        `Found ${result.devices?.length ?? 0} device(s). ADB: ${result.adb?.version ?? result.adb?.path ?? 'available'}`
+      );
+    } else {
+      setAdbMessage(result.error ?? result.adb?.installHint ?? result.stderr);
+    }
   }
 
   async function reversePort(serial?: string) {
@@ -221,8 +233,12 @@ function App() {
       setAdbMessage('ADB reverse is available only in the Electron app.');
       return;
     }
-    const result = await api.adbReverse(serial);
-    setAdbMessage(result.ok ? `Mapped tcp:${state.server.port} for ${serial ?? 'default device'}.` : result.error ?? result.stderr);
+    const result = await api.adbReverse(serial, state.server.port, state.server.devicePort);
+    setAdbMessage(
+      result.ok
+        ? `Mapped device tcp:${state.server.devicePort} to desktop tcp:${state.server.port} for ${serial ?? 'default device'}.`
+        : result.error ?? result.adb?.installHint ?? result.stderr
+    );
   }
 
   async function clearCaptures() {
@@ -250,6 +266,7 @@ function App() {
   }
 
   const live = state.server.running && state.server.error === undefined;
+  const serverLabel = state.server.starting ? 'Starting' : live ? 'Listening' : 'Offline';
 
   return (
     <div className="app">
@@ -269,9 +286,14 @@ function App() {
           </div>
           <div className="server-line">
             <span className={`dot ${live ? 'dot-live' : 'dot-idle'}`} />
-            <span>{live ? 'Listening' : 'Offline'}</span>
+            <span>{serverLabel}</span>
             <strong>127.0.0.1:{state.server.port}</strong>
           </div>
+          {state.server.port !== state.server.preferredPort ? (
+            <p className="hint-text">
+              Preferred port {state.server.preferredPort} was busy. USB clients still use device port {state.server.devicePort}.
+            </p>
+          ) : null}
           {state.server.error ? <p className="error-text">{state.server.error}</p> : null}
           <div className="metric-grid">
             <div>
@@ -300,6 +322,9 @@ function App() {
               Reverse
             </button>
           </div>
+          <p className="hint-text">
+            USB mapping keeps Android on tcp:{state.server.devicePort} and forwards to desktop tcp:{state.server.port}.
+          </p>
           {adbDevices.length > 0 ? (
             <div className="device-list">
               {adbDevices.map((device) => (
