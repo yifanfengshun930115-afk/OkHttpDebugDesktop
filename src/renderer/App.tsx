@@ -21,6 +21,8 @@ import {
   ListRestart,
   Menu,
   MonitorSmartphone,
+  ExternalLink,
+  PackageCheck,
   PauseCircle,
   PlayCircle,
   RefreshCw,
@@ -46,6 +48,9 @@ type DetailTab = 'overview' | 'compare' | 'headers' | 'request' | 'response' | '
 type StatusFilter = 'all' | 'success' | 'error' | 'failed';
 type StageFilter = 'all' | 'plain' | 'wire' | 'dual';
 type BodyMode = 'pretty' | 'raw';
+type UpdateCheckStatus = 'idle' | 'checking' | 'current' | 'available' | 'error';
+
+const RELEASE_PAGE_URL = 'https://github.com/yifanfengshun930115-afk/OkHttpDebugDesktop/releases/latest';
 
 const DETAIL_TAB_LABELS: Record<DetailTab, string> = {
   overview: '概览',
@@ -72,6 +77,18 @@ interface SourceFacet {
 
 interface SourceChip extends SourceFacet {
   kind: 'device' | 'app';
+}
+
+interface UpdateCheckState {
+  status: UpdateCheckStatus;
+  currentVersion?: string;
+  latestVersion?: string;
+  releaseUrl?: string;
+  assetName?: string;
+  assetDownloadUrl?: string;
+  assetSizeBytes?: number;
+  checkedAtEpochMs?: number;
+  message: string;
 }
 
 interface BodyInspectorProps {
@@ -188,6 +205,26 @@ function measuredBodySize(body?: string, contentLength?: number) {
     return '-';
   }
   return `${body.length.toLocaleString()} 字符`;
+}
+
+function displayVersion(version?: string) {
+  return version ? `v${version.replace(/^v/i, '')}` : '-';
+}
+
+function updateStatusTitle(status: UpdateCheckStatus) {
+  if (status === 'checking') {
+    return '正在检查更新';
+  }
+  if (status === 'available') {
+    return '发现新版本';
+  }
+  if (status === 'current') {
+    return '当前已是最新版本';
+  }
+  if (status === 'error') {
+    return '更新检查失败';
+  }
+  return '自动检查更新';
 }
 
 function getHost(url: string) {
@@ -972,9 +1009,15 @@ function App() {
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [closingApp, setClosingApp] = useState(false);
   const [newGroupIds, setNewGroupIds] = useState<Set<string>>(new Set());
+  const [updateCheck, setUpdateCheck] = useState<UpdateCheckState>({
+    status: 'idle',
+    releaseUrl: RELEASE_PAGE_URL,
+    message: '启动后会自动检查 GitHub Release。'
+  });
   const knownGroupIdsRef = useRef<Set<string>>(new Set());
   const groupTrackingReadyRef = useRef(false);
   const newGroupTimeoutsRef = useRef<Map<string, number>>(new Map());
+  const updateAutoCheckStartedRef = useRef(false);
 
   const api = useMemo(() => resolveDesktopApi(), []);
 
@@ -1133,6 +1176,14 @@ function App() {
   }, [api]);
 
   useEffect(() => {
+    if (!api || updateAutoCheckStartedRef.current) {
+      return;
+    }
+    updateAutoCheckStartedRef.current = true;
+    void checkForUpdates(false);
+  }, [api]);
+
+  useEffect(() => {
     if (!noticeMessage) {
       return undefined;
     }
@@ -1260,6 +1311,91 @@ function App() {
   const selected =
     selectedGroup?.records.find((capture) => selectedStageKey && captureStageKey(capture) === selectedStageKey) ??
     selectedGroup?.primary;
+
+  async function checkForUpdates(manual = true) {
+    if (!api) {
+      const message = '更新检查仅在桌面应用中可用。';
+      setUpdateCheck((current) => ({
+        ...current,
+        status: 'error',
+        message,
+        checkedAtEpochMs: Date.now()
+      }));
+      if (manual) {
+        setNoticeMessage(message);
+      }
+      return;
+    }
+
+    setUpdateCheck((current) => ({
+      ...current,
+      status: 'checking',
+      message: manual ? '正在从 GitHub Release 获取最新版本。' : '正在自动检查 GitHub Release。'
+    }));
+
+    try {
+      const result = await api.checkForUpdates();
+      const nextState: UpdateCheckState = {
+        status: result.ok ? (result.hasUpdate ? 'available' : 'current') : 'error',
+        currentVersion: result.currentVersion,
+        latestVersion: result.latestVersion,
+        releaseUrl: result.releaseUrl || RELEASE_PAGE_URL,
+        assetName: result.assetName,
+        assetDownloadUrl: result.assetDownloadUrl,
+        assetSizeBytes: result.assetSizeBytes,
+        checkedAtEpochMs: result.checkedAtEpochMs,
+        message: result.ok ? result.message : result.error ?? result.message
+      };
+      setUpdateCheck(nextState);
+
+      if (!result.ok) {
+        if (manual) {
+          setNoticeMessage(result.error ?? result.message);
+        }
+      } else if (result.hasUpdate) {
+        setNoticeMessage(`发现新版本 ${displayVersion(result.latestVersion)}。`);
+      } else if (manual) {
+        setNoticeMessage('当前已是最新版本。');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '更新检查失败。';
+      setUpdateCheck((current) => ({
+        ...current,
+        status: 'error',
+        releaseUrl: current.releaseUrl ?? RELEASE_PAGE_URL,
+        checkedAtEpochMs: Date.now(),
+        message
+      }));
+      if (manual) {
+        setNoticeMessage(message);
+      }
+    }
+  }
+
+  async function openUpdateUrl(url: string | undefined, successMessage: string) {
+    if (!api) {
+      setNoticeMessage('打开链接仅在桌面应用中可用。');
+      return;
+    }
+    if (!url) {
+      setNoticeMessage('没有可打开的链接。');
+      return;
+    }
+    const result = await api.openExternalUrl(url);
+    setNoticeMessage(result.ok ? successMessage : result.error ?? result.message);
+  }
+
+  async function downloadUpdateAsset() {
+    if (!updateCheck.assetDownloadUrl) {
+      setNoticeMessage('没有找到适配当前系统的安装包，请打开 Release 页面手动选择。');
+      return;
+    }
+    await openUpdateUrl(updateCheck.assetDownloadUrl, '已在浏览器中打开安装包下载链接。');
+  }
+
+  async function openReleasePage() {
+    await openUpdateUrl(updateCheck.releaseUrl ?? RELEASE_PAGE_URL, '已在浏览器中打开 GitHub Release 页面。');
+  }
 
   async function refreshDevices() {
     if (!api) {
@@ -1421,6 +1557,8 @@ function App() {
       : usbReverse.active
         ? '正在等待服务'
         : '等待 USB 设备';
+  const updateChecking = updateCheck.status === 'checking';
+  const updateLastChecked = updateCheck.checkedAtEpochMs ? formatTime(updateCheck.checkedAtEpochMs) : '';
 
   return (
     <div className={`app ${isResizing ? 'resizing' : ''}`}>
@@ -1462,6 +1600,51 @@ function App() {
             <X size={17} />
           </button>
         </div>
+
+        <section className={`panel update-panel update-${updateCheck.status}`}>
+          <div className="panel-title">
+            <PackageCheck size={16} />
+            软件更新
+          </div>
+          <div className="update-summary">
+            <span className="update-indicator" />
+            <div>
+              <strong>{updateStatusTitle(updateCheck.status)}</strong>
+              <span>{updateCheck.message}</span>
+            </div>
+          </div>
+          <div className="update-version-grid">
+            <div>
+              <span>当前版本</span>
+              <strong>{displayVersion(updateCheck.currentVersion)}</strong>
+            </div>
+            <div>
+              <span>最新版本</span>
+              <strong>{displayVersion(updateCheck.latestVersion)}</strong>
+            </div>
+          </div>
+          {updateCheck.assetName ? (
+            <p className="hint-text" title={updateCheck.assetName}>
+              适配包 {updateCheck.assetName}
+              {updateCheck.assetSizeBytes ? ` · ${formatBytes(updateCheck.assetSizeBytes)}` : ''}
+            </p>
+          ) : null}
+          {updateLastChecked ? <p className="hint-text">最近检查 {updateLastChecked}</p> : null}
+          <div className="utility-actions">
+            <button type="button" disabled={updateChecking} onClick={() => void checkForUpdates(true)}>
+              <RefreshCw size={15} />
+              {updateChecking ? '检查中' : '检查更新'}
+            </button>
+            <button type="button" disabled={!updateCheck.assetDownloadUrl || updateCheck.status !== 'available'} onClick={() => void downloadUpdateAsset()}>
+              <Download size={15} />
+              下载适配包
+            </button>
+            <button type="button" onClick={() => void openReleasePage()}>
+              <ExternalLink size={15} />
+              Release 页面
+            </button>
+          </div>
+        </section>
 
         <section className="panel server-panel">
           <div className="panel-title">

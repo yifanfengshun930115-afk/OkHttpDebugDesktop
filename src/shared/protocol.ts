@@ -176,6 +176,20 @@ export interface DiagnosticsInfo {
   logFiles: LogFileInfo[];
 }
 
+export interface UpdateCheckResult {
+  ok: boolean;
+  currentVersion: string;
+  latestVersion?: string;
+  hasUpdate: boolean;
+  releaseUrl: string;
+  assetName?: string;
+  assetDownloadUrl?: string;
+  assetSizeBytes?: number;
+  checkedAtEpochMs: number;
+  message: string;
+  error?: string;
+}
+
 export interface AdbDevice {
   serial: string;
   state: string;

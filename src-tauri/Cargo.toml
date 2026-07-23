@@ -1,6 +1,6 @@
 [package]
 name = "okhttp-debug-desktop-tauri"
-version = "0.1.1"
+version = "0.1.2"
 description = "Tauri desktop console for Android OkHttp WebSocket debug captures."
 authors = ["gzq"]
 license = ""
