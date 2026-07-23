@@ -279,18 +279,25 @@ fn export_json(state: State<'_, SharedAppState>) -> AdbExportResult {
         .map_err(|error| error.to_string())
         .and_then(|text| fs::write(&file_path, text).map_err(|error| error.to_string()))
     {
-        Ok(()) => AdbExportResult {
-            ok: true,
-            canceled: false,
-            file_path: Some(file_path.to_string_lossy().to_string()),
-            count: Some(snapshot.captures.len()),
-            error: None,
-        },
+        Ok(()) => {
+            let open_folder_error = file_path
+                .parent()
+                .and_then(|parent| open_path(parent).err());
+            AdbExportResult {
+                ok: true,
+                canceled: false,
+                file_path: Some(file_path.to_string_lossy().to_string()),
+                count: Some(snapshot.captures.len()),
+                open_folder_error,
+                error: None,
+            }
+        }
         Err(error) => AdbExportResult {
             ok: false,
             canceled: false,
             file_path: None,
             count: None,
+            open_folder_error: None,
             error: Some(error),
         },
     }
@@ -303,6 +310,7 @@ struct AdbExportResult {
     canceled: bool,
     file_path: Option<String>,
     count: Option<usize>,
+    open_folder_error: Option<String>,
     error: Option<String>,
 }
 

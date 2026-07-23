@@ -1134,7 +1134,11 @@ function App() {
     if (result.canceled) {
       setNoticeMessage('已取消导出。');
     } else if (result.ok) {
-      setNoticeMessage(`已导出 ${result.count ?? 0} 条捕获记录。`);
+      setNoticeMessage(
+        result.openFolderError
+          ? `已导出 ${result.count ?? 0} 条捕获记录，但文件夹打开失败：${result.openFolderError}`
+          : `已导出 ${result.count ?? 0} 条捕获记录。`
+      );
     } else {
       setNoticeMessage(result.error ?? '导出失败。');
     }

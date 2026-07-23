@@ -146,6 +146,7 @@ export interface ExportResult {
   canceled?: boolean;
   filePath?: string;
   count?: number;
+  openFolderError?: string;
   error?: string;
 }
 
