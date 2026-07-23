@@ -149,6 +149,34 @@ export interface ExportResult {
   error?: string;
 }
 
+export interface LogActionResult {
+  ok: boolean;
+  message: string;
+  logDir?: string;
+  captureLogPath?: string;
+  deletedCount?: number;
+  error?: string;
+}
+
+export interface LogFileInfo {
+  name: string;
+  path: string;
+  sizeBytes: number;
+  modifiedEpochMs?: number;
+}
+
+export interface DiagnosticsInfo {
+  generatedAtEpochMs: number;
+  appVersion: string;
+  os: string;
+  arch: string;
+  logDir: string;
+  captureLogPath?: string;
+  server: ServerState;
+  adb: AdbInfo;
+  logFiles: LogFileInfo[];
+}
+
 export interface AdbDevice {
   serial: string;
   state: string;

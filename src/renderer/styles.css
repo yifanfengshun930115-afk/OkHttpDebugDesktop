@@ -132,6 +132,11 @@ button:disabled {
   background: linear-gradient(180deg, #ffffff 0%, #f5fffd 100%);
 }
 
+.feedback-panel {
+  border-color: #d8e5ff;
+  background: linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+}
+
 .panel-title {
   display: flex;
   align-items: center;
@@ -160,6 +165,21 @@ button:disabled {
 
 .log-path {
   overflow-wrap: anywhere;
+}
+
+.feedback-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  color: #4b5563;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.feedback-summary svg {
+  margin-top: 2px;
+  color: #2563eb;
 }
 
 .dot {
@@ -212,7 +232,15 @@ button:disabled {
   gap: 8px;
 }
 
+.utility-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .button-row button,
+.utility-actions button,
 .toolbar button,
 .segmented button,
 .device-list button,
@@ -231,6 +259,7 @@ button:disabled {
 }
 
 .button-row button:hover,
+.utility-actions button:hover,
 .toolbar button:hover,
 .segmented button:hover,
 .device-list button:hover,
@@ -238,6 +267,15 @@ button:disabled {
 .stage-switch button:hover,
 .icon-button:hover {
   background: #f2f6fa;
+}
+
+.utility-actions .danger-lite {
+  border-color: #fecaca;
+  color: #b42318;
+}
+
+.utility-actions .danger-lite:hover {
+  background: #fef2f2;
 }
 
 .icon-button {

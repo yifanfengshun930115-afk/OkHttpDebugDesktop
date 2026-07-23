@@ -1,4 +1,4 @@
-import type { AdbCommandResult, DesktopState, ExportResult } from './protocol.js';
+import type { AdbCommandResult, DesktopState, DiagnosticsInfo, ExportResult, LogActionResult } from './protocol.js';
 
 export const IPC_CHANNELS = {
   stateGet: 'okhttp-debug:state:get',
@@ -14,6 +14,16 @@ export interface DesktopApi {
   onStateChanged(callback: (state: DesktopState) => void): () => void;
   clearCaptures(): Promise<DesktopState>;
   exportJson(): Promise<ExportResult>;
+  openLogDir(): Promise<LogActionResult>;
+  clearLogs(): Promise<LogActionResult>;
+  getDiagnostics(): Promise<DiagnosticsInfo>;
+  reportRendererError(payload: {
+    message: string;
+    stack?: string;
+    source?: string;
+    lineno?: number;
+    colno?: number;
+  }): Promise<LogActionResult>;
   adbListDevices(): Promise<AdbCommandResult>;
   adbReverse(serial?: string, hostPort?: number, devicePort?: number): Promise<AdbCommandResult>;
 }

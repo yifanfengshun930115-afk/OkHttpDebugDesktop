@@ -1,5 +1,5 @@
 use chrono::{Duration as ChronoDuration, Local, NaiveDate};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::HashSet,
@@ -7,6 +7,7 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     net::{TcpListener, TcpStream},
+    panic,
     path::{Path, PathBuf},
     process::Command,
     sync::{
@@ -134,6 +135,50 @@ struct AdbCommandResult {
     error: Option<String>,
     devices: Option<Vec<AdbDevice>>,
     adb: Option<AdbInfo>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LogActionResult {
+    ok: bool,
+    message: String,
+    log_dir: Option<String>,
+    capture_log_path: Option<String>,
+    deleted_count: Option<usize>,
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LogFileInfo {
+    name: String,
+    path: String,
+    size_bytes: u64,
+    modified_epoch_ms: Option<u64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticsInfo {
+    generated_at_epoch_ms: u64,
+    app_version: String,
+    os: String,
+    arch: String,
+    log_dir: String,
+    capture_log_path: Option<String>,
+    server: ServerState,
+    adb: AdbInfo,
+    log_files: Vec<LogFileInfo>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RendererErrorReport {
+    message: String,
+    stack: Option<String>,
+    source: Option<String>,
+    lineno: Option<u32>,
+    colno: Option<u32>,
 }
 
 #[derive(Clone, Serialize)]
@@ -296,6 +341,153 @@ fn close_app(app: AppHandle, state: State<'_, SharedAppState>, device_port: Opti
     app.exit(0);
 }
 
+#[tauri::command]
+fn open_log_dir(state: State<'_, SharedAppState>) -> LogActionResult {
+    let log_dir = {
+        let model = state.0.lock().expect("state lock poisoned");
+        model.log_dir.clone()
+    };
+    if let Err(error) = fs::create_dir_all(&log_dir) {
+        return log_action_error(&log_dir, format!("日志目录创建失败：{}", error));
+    }
+
+    match open_path(&log_dir) {
+        Ok(()) => LogActionResult {
+            ok: true,
+            message: "已打开日志目录。".to_string(),
+            log_dir: Some(log_dir.to_string_lossy().to_string()),
+            capture_log_path: Some(
+                capture_log_path_for_day(&log_dir)
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+            deleted_count: None,
+            error: None,
+        },
+        Err(error) => log_action_error(&log_dir, format!("日志目录打开失败：{}", error)),
+    }
+}
+
+#[tauri::command]
+fn clear_logs(app: AppHandle, state: State<'_, SharedAppState>) -> LogActionResult {
+    let log_dir = {
+        let model = state.0.lock().expect("state lock poisoned");
+        model.log_dir.clone()
+    };
+
+    let mut deleted_count = 0usize;
+    let mut failures = Vec::new();
+    if let Err(error) = fs::create_dir_all(&log_dir) {
+        return log_action_error(&log_dir, format!("日志目录创建失败：{}", error));
+    }
+
+    match fs::read_dir(&log_dir) {
+        Ok(entries) => {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let result = if path.is_dir() {
+                    fs::remove_dir_all(&path)
+                } else {
+                    fs::remove_file(&path)
+                };
+                match result {
+                    Ok(()) => deleted_count += 1,
+                    Err(error) => failures.push(format!("{}: {}", path.to_string_lossy(), error)),
+                }
+            }
+        }
+        Err(error) => return log_action_error(&log_dir, format!("日志读取失败：{}", error)),
+    }
+
+    let capture_log_path = capture_log_path_for_day(&log_dir);
+    state.mutate(|model| {
+        model.server.capture_log_path = Some(capture_log_path.to_string_lossy().to_string());
+    });
+    append_log(
+        &state,
+        json!({ "type": "logs_cleared", "deletedCount": deleted_count }),
+    );
+    emit_state(&app, &state);
+
+    if failures.is_empty() {
+        LogActionResult {
+            ok: true,
+            message: format!("已清理 {} 个日志项。", deleted_count),
+            log_dir: Some(log_dir.to_string_lossy().to_string()),
+            capture_log_path: Some(capture_log_path.to_string_lossy().to_string()),
+            deleted_count: Some(deleted_count),
+            error: None,
+        }
+    } else {
+        LogActionResult {
+            ok: false,
+            message: format!(
+                "已清理 {} 个日志项，{} 个失败。",
+                deleted_count,
+                failures.len()
+            ),
+            log_dir: Some(log_dir.to_string_lossy().to_string()),
+            capture_log_path: Some(capture_log_path.to_string_lossy().to_string()),
+            deleted_count: Some(deleted_count),
+            error: Some(failures.join("\n")),
+        }
+    }
+}
+
+#[tauri::command]
+fn get_diagnostics(state: State<'_, SharedAppState>) -> DiagnosticsInfo {
+    let snapshot = state.snapshot();
+    let log_dir = {
+        let model = state.0.lock().expect("state lock poisoned");
+        model.log_dir.clone()
+    };
+    DiagnosticsInfo {
+        generated_at_epoch_ms: now_ms(),
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        os: env::consts::OS.to_string(),
+        arch: env::consts::ARCH.to_string(),
+        log_dir: log_dir.to_string_lossy().to_string(),
+        capture_log_path: snapshot.server.capture_log_path.clone(),
+        server: snapshot.server,
+        adb: detect_adb(&state),
+        log_files: list_log_files(&log_dir),
+    }
+}
+
+#[tauri::command]
+fn report_renderer_error(
+    state: State<'_, SharedAppState>,
+    payload: RendererErrorReport,
+) -> LogActionResult {
+    let log_dir = {
+        let model = state.0.lock().expect("state lock poisoned");
+        model.log_dir.clone()
+    };
+    append_log(
+        &state,
+        json!({
+          "type": "renderer_error",
+          "message": payload.message,
+          "stack": payload.stack,
+          "source": payload.source,
+          "lineno": payload.lineno,
+          "colno": payload.colno,
+        }),
+    );
+    LogActionResult {
+        ok: true,
+        message: "已记录前端异常。".to_string(),
+        log_dir: Some(log_dir.to_string_lossy().to_string()),
+        capture_log_path: Some(
+            capture_log_path_for_day(&log_dir)
+                .to_string_lossy()
+                .to_string(),
+        ),
+        deleted_count: None,
+        error: None,
+    }
+}
+
 fn cleanup_adb_reverse_inner(
     app: &AppHandle,
     state: &SharedAppState,
@@ -337,7 +529,25 @@ pub fn run() {
                     .join("okhttp-debug-desktop-tauri")
                     .join("logs")
             });
+            install_panic_hook(log_dir.clone());
             let shared = SharedAppState::new(resource_dir, log_dir);
+            let startup_resource_dir = {
+                let model = shared.0.lock().expect("state lock poisoned");
+                model
+                    .resource_dir
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().to_string())
+            };
+            append_log(
+                &shared,
+                json!({
+                  "type": "desktop_started",
+                  "appVersion": env!("CARGO_PKG_VERSION"),
+                  "os": env::consts::OS,
+                  "arch": env::consts::ARCH,
+                  "resourceDir": startup_resource_dir,
+                }),
+            );
             let handle = app.handle().clone();
             app.manage(shared.clone());
             start_capture_server(handle.clone(), shared.clone());
@@ -351,7 +561,11 @@ pub fn run() {
             adb_list_devices,
             adb_reverse,
             cleanup_adb_reverse,
-            close_app
+            close_app,
+            open_log_dir,
+            clear_logs,
+            get_diagnostics,
+            report_renderer_error
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -611,6 +825,49 @@ fn emit_state(app: &AppHandle, shared: &SharedAppState) {
     let _ = app.emit(STATE_CHANGED_EVENT, shared.snapshot());
 }
 
+fn log_action_error(log_dir: &Path, message: String) -> LogActionResult {
+    LogActionResult {
+        ok: false,
+        message: message.clone(),
+        log_dir: Some(log_dir.to_string_lossy().to_string()),
+        capture_log_path: Some(
+            capture_log_path_for_day(log_dir)
+                .to_string_lossy()
+                .to_string(),
+        ),
+        deleted_count: None,
+        error: Some(message),
+    }
+}
+
+fn open_path(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("open");
+        command.arg(path);
+        command
+    };
+
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("explorer");
+        command.arg(path);
+        command
+    };
+
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut command = Command::new("xdg-open");
+        command.arg(path);
+        command
+    };
+
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
 fn append_log(shared: &SharedAppState, entry: Value) {
     let log_path = {
         let mut model = shared.0.lock().expect("state lock poisoned");
@@ -618,9 +875,64 @@ fn append_log(shared: &SharedAppState, entry: Value) {
         model.server.capture_log_path = Some(path.to_string_lossy().to_string());
         path
     };
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
-        let _ = writeln!(file, "{}", entry);
+    let _ = append_json_line(&log_path, entry);
+}
+
+fn append_json_line(path: &Path, entry: Value) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
     }
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    writeln!(file, "{}", log_entry_with_timestamp(entry))
+}
+
+fn log_entry_with_timestamp(entry: Value) -> Value {
+    match entry {
+        Value::Object(mut object) => {
+            object.insert("tsEpochMs".to_string(), json!(now_ms()));
+            object.insert("ts".to_string(), json!(Local::now().to_rfc3339()));
+            Value::Object(object)
+        }
+        other => json!({
+          "tsEpochMs": now_ms(),
+          "ts": Local::now().to_rfc3339(),
+          "payload": other,
+        }),
+    }
+}
+
+fn install_panic_hook(log_dir: PathBuf) {
+    let previous_hook = panic::take_hook();
+    panic::set_hook(Box::new(move |panic_info| {
+        let message = panic_info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|message| (*message).to_string())
+            .or_else(|| {
+                panic_info
+                    .payload()
+                    .downcast_ref::<String>()
+                    .map(ToOwned::to_owned)
+            })
+            .unwrap_or_else(|| "Rust panic".to_string());
+        let location = panic_info.location().map(|location| {
+            format!(
+                "{}:{}:{}",
+                location.file(),
+                location.line(),
+                location.column()
+            )
+        });
+        let _ = append_json_line(
+            &crash_log_path_for_day(&log_dir),
+            json!({
+              "type": "rust_panic",
+              "message": message,
+              "location": location,
+            }),
+        );
+        previous_hook(panic_info);
+    }));
 }
 
 fn capture_log_path_for_day(log_dir: &Path) -> PathBuf {
@@ -628,6 +940,44 @@ fn capture_log_path_for_day(log_dir: &Path) -> PathBuf {
         "captures-{}.ndjson",
         Local::now().format("%Y-%m-%d")
     ))
+}
+
+fn crash_log_path_for_day(log_dir: &Path) -> PathBuf {
+    log_dir.join(format!(
+        "crashes-{}.ndjson",
+        Local::now().format("%Y-%m-%d")
+    ))
+}
+
+fn list_log_files(log_dir: &Path) -> Vec<LogFileInfo> {
+    let Ok(entries) = fs::read_dir(log_dir) else {
+        return Vec::new();
+    };
+
+    let mut files = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let metadata = entry.metadata().ok()?;
+            if !metadata.is_file() {
+                return None;
+            }
+            Some(LogFileInfo {
+                name: entry.file_name().to_string_lossy().to_string(),
+                path: path.to_string_lossy().to_string(),
+                size_bytes: metadata.len(),
+                modified_epoch_ms: metadata.modified().ok().map(system_time_to_epoch_ms),
+            })
+        })
+        .collect::<Vec<_>>();
+    files.sort_by(|a, b| b.modified_epoch_ms.cmp(&a.modified_epoch_ms));
+    files
+}
+
+fn system_time_to_epoch_ms(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_millis() as u64
 }
 
 fn cleanup_old_logs(log_dir: &Path) {
@@ -641,7 +991,7 @@ fn cleanup_old_logs(log_dir: &Path) {
         let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        let Some(log_date) = capture_log_date(file_name) else {
+        let Some(log_date) = dated_log_file_date(file_name) else {
             continue;
         };
         if log_date < cutoff {
@@ -650,9 +1000,20 @@ fn cleanup_old_logs(log_dir: &Path) {
     }
 }
 
+fn dated_log_file_date(file_name: &str) -> Option<NaiveDate> {
+    capture_log_date(file_name).or_else(|| crash_log_date(file_name))
+}
+
 fn capture_log_date(file_name: &str) -> Option<NaiveDate> {
     let date = file_name
         .strip_prefix("captures-")?
+        .strip_suffix(".ndjson")?;
+    NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()
+}
+
+fn crash_log_date(file_name: &str) -> Option<NaiveDate> {
+    let date = file_name
+        .strip_prefix("crashes-")?
         .strip_suffix(".ndjson")?;
     NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()
 }
@@ -1244,8 +1605,13 @@ mod tests {
             capture_log_date("captures-2026-07-23.ndjson"),
             NaiveDate::from_ymd_opt(2026, 7, 23)
         );
+        assert_eq!(
+            dated_log_file_date("crashes-2026-07-23.ndjson"),
+            NaiveDate::from_ymd_opt(2026, 7, 23)
+        );
         assert!(capture_log_date("capture-2026-07-23.ndjson").is_none());
         assert!(capture_log_date("captures-latest.ndjson").is_none());
+        assert!(dated_log_file_date("crashes-latest.ndjson").is_none());
     }
 
     #[test]
@@ -1258,16 +1624,22 @@ mod tests {
         let kept_date = today - ChronoDuration::days(LOG_RETENTION_DAYS as i64 - 1);
         let stale_log = log_dir.join(format!("captures-{}.ndjson", stale_date.format("%Y-%m-%d")));
         let kept_log = log_dir.join(format!("captures-{}.ndjson", kept_date.format("%Y-%m-%d")));
+        let stale_crash = log_dir.join(format!("crashes-{}.ndjson", stale_date.format("%Y-%m-%d")));
+        let kept_crash = log_dir.join(format!("crashes-{}.ndjson", kept_date.format("%Y-%m-%d")));
         let unrelated_log = log_dir.join("desktop.log");
 
         fs::write(&stale_log, "old").expect("write stale log");
         fs::write(&kept_log, "kept").expect("write kept log");
+        fs::write(&stale_crash, "old crash").expect("write stale crash log");
+        fs::write(&kept_crash, "kept crash").expect("write kept crash log");
         fs::write(&unrelated_log, "other").expect("write unrelated log");
 
         cleanup_old_logs(&log_dir);
 
         assert!(!stale_log.exists());
         assert!(kept_log.exists());
+        assert!(!stale_crash.exists());
+        assert!(kept_crash.exists());
         assert!(unrelated_log.exists());
 
         let _ = fs::remove_dir_all(log_dir);

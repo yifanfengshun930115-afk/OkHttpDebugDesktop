@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import {
   Activity,
   AlertTriangle,
+  Bug,
   Cable,
   CheckCircle2,
   ChevronDown,
@@ -12,8 +13,10 @@ import {
   Copy,
   Download,
   FileJson,
+  FileSearch,
   FileText,
   Filter,
+  FolderOpen,
   GripVertical,
   ListRestart,
   Menu,
@@ -924,6 +927,44 @@ function App() {
   useEffect(() => onDesktopCloseRequested(() => setExitConfirmOpen(true)), []);
 
   useEffect(() => {
+    if (!api) {
+      return undefined;
+    }
+
+    const report = (payload: { message: string; stack?: string; source?: string; lineno?: number; colno?: number }) => {
+      void api.reportRendererError(payload).catch((error) => {
+        console.error('Failed to record renderer error', error);
+      });
+    };
+
+    const onError = (event: ErrorEvent) => {
+      report({
+        message: event.message || '前端运行时错误',
+        stack: event.error instanceof Error ? event.error.stack : undefined,
+        source: event.filename || undefined,
+        lineno: event.lineno || undefined,
+        colno: event.colno || undefined
+      });
+    };
+
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      report({
+        message: reason instanceof Error ? reason.message : String(reason ?? '未处理的 Promise 拒绝'),
+        stack: reason instanceof Error ? reason.stack : undefined,
+        source: 'unhandledrejection'
+      });
+    };
+
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+    return () => {
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onUnhandledRejection);
+    };
+  }, [api]);
+
+  useEffect(() => {
     if (!noticeMessage) {
       return undefined;
     }
@@ -1099,6 +1140,38 @@ function App() {
     }
   }
 
+  async function openLogDir() {
+    if (!api) {
+      setNoticeMessage('日志目录仅在桌面应用中可用。');
+      return;
+    }
+    const result = await api.openLogDir();
+    setNoticeMessage(result.ok ? result.message : result.error ?? result.message);
+  }
+
+  async function copyDiagnostics() {
+    if (!api) {
+      setNoticeMessage('诊断信息仅在桌面应用中可用。');
+      return;
+    }
+    const diagnostics = await api.getDiagnostics();
+    await copyText(JSON.stringify(diagnostics, null, 2), setNoticeMessage, '已复制诊断信息');
+  }
+
+  async function clearLogs() {
+    if (!api) {
+      setNoticeMessage('日志清理仅在桌面应用中可用。');
+      return;
+    }
+    if (!window.confirm('确定清理本机日志吗？清理后会立即创建一份新的当前日志。')) {
+      return;
+    }
+    const result = await api.clearLogs();
+    setNoticeMessage(result.ok ? result.message : result.error ?? result.message);
+    const nextState = await api.getState();
+    setState(nextState);
+  }
+
   async function closeApp() {
     setClosingApp(true);
     try {
@@ -1184,11 +1257,6 @@ function App() {
             </p>
           ) : null}
           {state.server.error ? <p className="error-text">{state.server.error}</p> : null}
-          {state.server.captureLogPath ? (
-            <p className="hint-text log-path" title={state.server.captureLogPath}>
-              日志 {state.server.captureLogPath}
-            </p>
-          ) : null}
           <div className="metric-grid">
             <div>
               <span>连接数</span>
@@ -1206,6 +1274,36 @@ function App() {
               <span>平均耗时</span>
               <strong>{formatDuration(stats.avgDuration)}</strong>
             </div>
+          </div>
+        </section>
+
+        <section className="panel feedback-panel">
+          <div className="panel-title">
+            <Bug size={16} />
+            日志与反馈
+          </div>
+          <div className="feedback-summary">
+            <FileSearch size={15} />
+            <span>遇到安装、连接、崩溃或显示异常时，请复制诊断信息并附上最新日志。</span>
+          </div>
+          {state.server.captureLogPath ? (
+            <p className="hint-text log-path" title={state.server.captureLogPath}>
+              当前日志 {state.server.captureLogPath}
+            </p>
+          ) : null}
+          <div className="utility-actions">
+            <button type="button" onClick={() => void openLogDir()}>
+              <FolderOpen size={15} />
+              打开日志目录
+            </button>
+            <button type="button" onClick={() => void copyDiagnostics()}>
+              <Copy size={15} />
+              复制诊断信息
+            </button>
+            <button type="button" className="danger-lite" onClick={() => void clearLogs()}>
+              <Trash2 size={15} />
+              清理日志
+            </button>
           </div>
         </section>
 

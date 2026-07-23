@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { DesktopApi } from '../shared/ipc.js';
-import type { AdbCommandResult, DesktopState, ExportResult } from '../shared/protocol.js';
+import type { AdbCommandResult, DesktopState, DiagnosticsInfo, ExportResult, LogActionResult } from '../shared/protocol.js';
 
 const STATE_CHANGED_EVENT = 'state_changed';
 
@@ -29,6 +29,10 @@ const tauriApi: DesktopApi = {
   },
   clearCaptures: () => invoke<DesktopState>('clear_captures'),
   exportJson: () => invoke<ExportResult>('export_json'),
+  openLogDir: () => invoke<LogActionResult>('open_log_dir'),
+  clearLogs: () => invoke<LogActionResult>('clear_logs'),
+  getDiagnostics: () => invoke<DiagnosticsInfo>('get_diagnostics'),
+  reportRendererError: (payload) => invoke<LogActionResult>('report_renderer_error', { payload }),
   adbListDevices: () => invoke<AdbCommandResult>('adb_list_devices'),
   adbReverse: (serial?: string, hostPort?: number, devicePort?: number) =>
     invoke<AdbCommandResult>('adb_reverse', { serial, hostPort, devicePort })
