@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import type { AdbDevice, CaptureRecord, DesktopState, HeadersRecord } from '../shared/protocol.js';
 import { DEFAULT_WS_PORT, DEFAULT_WS_PORT_RANGE_END } from '../shared/protocol.js';
+import { resolveDesktopApi } from './desktopApi.js';
 import { sampleCaptures } from './sampleCaptures.js';
 import './styles.css';
 
@@ -874,7 +875,7 @@ function App() {
   const [adbMessage, setAdbMessage] = useState('');
   const [noticeMessage, setNoticeMessage] = useState('');
 
-  const api = window.okhttpDebug;
+  const api = useMemo(() => resolveDesktopApi(), []);
 
   useEffect(() => {
     if (!api) {
