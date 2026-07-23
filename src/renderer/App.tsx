@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Activity,
@@ -965,8 +965,72 @@ function App() {
   const [noticeMessage, setNoticeMessage] = useState('');
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [closingApp, setClosingApp] = useState(false);
+  const [newGroupIds, setNewGroupIds] = useState<Set<string>>(new Set());
+  const knownGroupIdsRef = useRef<Set<string>>(new Set());
+  const groupTrackingReadyRef = useRef(false);
+  const newGroupTimeoutsRef = useRef<Map<string, number>>(new Map());
 
   const api = useMemo(() => resolveDesktopApi(), []);
+
+  function clearNewGroupMarkers() {
+    for (const timeout of newGroupTimeoutsRef.current.values()) {
+      window.clearTimeout(timeout);
+    }
+    newGroupTimeoutsRef.current.clear();
+    setNewGroupIds(new Set());
+  }
+
+  function initializeKnownGroups(groups: CaptureGroup[]) {
+    if (groupTrackingReadyRef.current) {
+      return;
+    }
+    knownGroupIdsRef.current = new Set(groups.map((group) => group.id));
+    groupTrackingReadyRef.current = true;
+  }
+
+  function markIncomingGroups(groups: CaptureGroup[]) {
+    const nextKnownGroupIds = new Set(groups.map((group) => group.id));
+    if (!groupTrackingReadyRef.current) {
+      knownGroupIdsRef.current = nextKnownGroupIds;
+      groupTrackingReadyRef.current = true;
+      return;
+    }
+
+    const addedGroupIds = [...nextKnownGroupIds].filter((id) => !knownGroupIdsRef.current.has(id));
+    knownGroupIdsRef.current = nextKnownGroupIds;
+    if (addedGroupIds.length === 0) {
+      return;
+    }
+
+    setNewGroupIds((current) => {
+      const next = new Set(current);
+      for (const id of addedGroupIds) {
+        next.add(id);
+      }
+      return next;
+    });
+
+    for (const id of addedGroupIds) {
+      const existingTimeout = newGroupTimeoutsRef.current.get(id);
+      if (existingTimeout !== undefined) {
+        window.clearTimeout(existingTimeout);
+      }
+
+      const timeout = window.setTimeout(() => {
+        newGroupTimeoutsRef.current.delete(id);
+        setNewGroupIds((current) => {
+          if (!current.has(id)) {
+            return current;
+          }
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
+      }, 2000);
+
+      newGroupTimeoutsRef.current.set(id, timeout);
+    }
+  }
 
   useEffect(() => {
     if (!api) {
@@ -974,6 +1038,7 @@ function App() {
     }
 
     void api.getState().then((nextState) => {
+      initializeKnownGroups(groupCaptures(nextState.captures));
       setState(nextState);
       if (nextState.captures[0]) {
         setSelectedGroupId(captureGroupId(nextState.captures[0]));
@@ -983,6 +1048,7 @@ function App() {
 
     return api.onStateChanged((nextState) => {
       const nextGroups = groupCaptures(nextState.captures);
+      markIncomingGroups(nextGroups);
       setState(nextState);
       setSelectedGroupId((current) => {
         if (followLive) {
@@ -1066,6 +1132,15 @@ function App() {
     const timeout = window.setTimeout(() => setNoticeMessage(''), 1800);
     return () => window.clearTimeout(timeout);
   }, [noticeMessage]);
+
+  useEffect(() => {
+    return () => {
+      for (const timeout of newGroupTimeoutsRef.current.values()) {
+        window.clearTimeout(timeout);
+      }
+      newGroupTimeoutsRef.current.clear();
+    };
+  }, []);
 
   const captures = state.captures.length > 0 ? state.captures : api ? [] : sampleCaptures;
   const captureGroups = useMemo(() => groupCaptures(captures), [captures]);
@@ -1246,10 +1321,16 @@ function App() {
   async function clearCaptures() {
     if (!api) {
       setState(fallbackState);
+      knownGroupIdsRef.current = new Set();
+      groupTrackingReadyRef.current = true;
+      clearNewGroupMarkers();
       return;
     }
     const nextState = await api.clearCaptures();
     setState(nextState);
+    knownGroupIdsRef.current = new Set(groupCaptures(nextState.captures).map((group) => group.id));
+    groupTrackingReadyRef.current = true;
+    clearNewGroupMarkers();
     setSelectedGroupId('');
     setSelectedStageKey('');
   }
@@ -1623,7 +1704,7 @@ function App() {
                   <button
                     key={group.id}
                     type="button"
-                    className={`request-row ${selectedGroup?.id === group.id ? 'selected' : ''}`}
+                    className={`request-row ${selectedGroup?.id === group.id ? 'selected' : ''} ${newGroupIds.has(group.id) ? 'new-request' : ''}`}
                     onClick={() => {
                       setFollowLive(false);
                       setSelectedGroupId(group.id);

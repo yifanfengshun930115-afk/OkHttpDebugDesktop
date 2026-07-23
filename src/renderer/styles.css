@@ -626,11 +626,17 @@ body.is-resizing {
 
 .request-row {
   display: grid;
+  position: relative;
   gap: 7px;
+  overflow: hidden;
   padding: 12px;
   border-bottom: 1px solid #eef2f7;
   background: #ffffff;
   text-align: left;
+  transition:
+    background-color 220ms ease,
+    box-shadow 220ms ease,
+    transform 180ms ease;
 }
 
 .request-row:hover,
@@ -640,6 +646,25 @@ body.is-resizing {
 
 .request-row.selected {
   box-shadow: inset 3px 0 0 #0f766e;
+}
+
+.request-row.new-request {
+  background: #fff7ed;
+  box-shadow:
+    inset 3px 0 0 #f97316,
+    inset 0 0 0 1px rgba(249, 115, 22, 0.24);
+  animation: request-row-enter 260ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.request-row.new-request:hover {
+  background: #ffedd5;
+}
+
+.request-row.new-request.selected {
+  background: #fff7ed;
+  box-shadow:
+    inset 3px 0 0 #0f766e,
+    inset 0 0 0 2px rgba(249, 115, 22, 0.25);
 }
 
 .request-row strong,
@@ -698,6 +723,42 @@ body.is-resizing {
   border-color: #a7f3d0;
   background: #ecfdf5;
   color: #047857;
+}
+
+@keyframes request-row-enter {
+  0% {
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-bottom-color: transparent;
+    opacity: 0;
+    transform: translateY(-8px) scale(0.992);
+  }
+
+  65% {
+    max-height: 160px;
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  100% {
+    max-height: 220px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+    border-bottom-color: #eef2f7;
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .request-row {
+    transition: background-color 120ms ease;
+  }
+
+  .request-row.new-request {
+    animation: none;
+  }
 }
 
 .stage-strip {
