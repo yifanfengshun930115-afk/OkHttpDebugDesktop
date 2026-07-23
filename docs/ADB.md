@@ -14,7 +14,7 @@ Android SDK Platform-Tools installation.
 
 ## Bundling
 
-For product builds, run this on each release machine before `npm run dist`:
+For product builds, run this on each release machine before Tauri packaging:
 
 ```bash
 npm run prepare:adb
@@ -32,7 +32,7 @@ resources/platform-tools/linux-arm64/adb
 resources/platform-tools/win32/adb.exe
 ```
 
-`electron-builder` copies that folder into app resources. Keep each binary from
+The Tauri bundler copies that folder into app resources. Keep each binary from
 the official Android SDK Platform-Tools package and preserve the accompanying
 license files when shipping a public build.
 

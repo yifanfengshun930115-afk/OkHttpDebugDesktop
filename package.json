@@ -1,7 +1,7 @@
 {
   "name": "okhttp-debug-desktop",
   "version": "0.1.0",
-  "description": "Electron desktop console for Android OkHttp WebSocket debug captures.",
+  "description": "Tauri desktop console for Android OkHttp WebSocket debug captures.",
   "private": true,
   "type": "module",
   "main": "dist-electron/main/main.js",
@@ -10,12 +10,15 @@
     "dev": "concurrently \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "build:renderer": "tsc -p tsconfig.json --noEmit && vite build",
+    "build:renderer:if-stale": "node scripts/build-renderer-if-stale.mjs",
     "build": "npm run typecheck && vite build && tsc -p tsconfig.electron.json",
     "prepare:adb": "node scripts/prepare-adb-resource.mjs",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:package:mac": "node scripts/package-tauri.mjs --platform macos",
+    "tauri:package:windows": "node scripts/package-tauri.mjs --platform windows"
   },
   "build": {
     "appId": "com.gzq.okhttpdebug.desktop",
