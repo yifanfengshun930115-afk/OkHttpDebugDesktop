@@ -14,7 +14,9 @@ import {
   FileJson,
   FileText,
   Filter,
+  GripVertical,
   ListRestart,
+  Menu,
   MonitorSmartphone,
   PauseCircle,
   PlayCircle,
@@ -23,7 +25,8 @@ import {
   Server,
   Timer,
   Trash2,
-  Usb
+  Usb,
+  X
 } from 'lucide-react';
 import type { AdbDevice, CaptureRecord, DesktopState, HeadersRecord } from '../shared/protocol.js';
 import { DEFAULT_WS_PORT, DEFAULT_WS_PORT_RANGE_END } from '../shared/protocol.js';
@@ -34,6 +37,16 @@ type DetailTab = 'overview' | 'compare' | 'headers' | 'request' | 'response' | '
 type StatusFilter = 'all' | 'success' | 'error' | 'failed';
 type StageFilter = 'all' | 'plain' | 'wire' | 'dual';
 type BodyMode = 'pretty' | 'raw';
+
+const DETAIL_TAB_LABELS: Record<DetailTab, string> = {
+  overview: '概览',
+  compare: '对比',
+  headers: '头信息',
+  request: '请求',
+  response: '响应',
+  timing: '耗时',
+  error: '错误'
+};
 
 interface CaptureGroup {
   id: string;
@@ -68,7 +81,7 @@ const fallbackState: DesktopState = {
       devicePort: DEFAULT_WS_PORT,
       intervalMs: 15000,
       devices: [],
-      message: 'USB auto reverse is ready.'
+      message: 'USB 自动映射已就绪。'
     },
     portRange: {
       start: DEFAULT_WS_PORT,
@@ -87,7 +100,7 @@ function methodClass(method: string) {
 
 function statusLabel(capture: CaptureRecord) {
   if (capture.error) {
-    return 'ERR';
+    return '错';
   }
 
   if (capture.response) {
@@ -149,7 +162,7 @@ function measuredBodySize(body?: string, contentLength?: number) {
   if (body === undefined) {
     return '-';
   }
-  return `${body.length.toLocaleString()} chars`;
+  return `${body.length.toLocaleString()} 字符`;
 }
 
 function getHost(url: string) {
@@ -203,11 +216,23 @@ function parseJsonString(value?: string) {
 
 function summarizeJson(value: unknown) {
   if (Array.isArray(value)) {
-    return `${value.length} item${value.length === 1 ? '' : 's'}`;
+    return `${value.length} 项`;
   }
   if (value && typeof value === 'object') {
     const count = Object.keys(value).length;
-    return `${count} key${count === 1 ? '' : 's'}`;
+    return `${count} 个字段`;
+  }
+  if (value === null) {
+    return '空值';
+  }
+  if (typeof value === 'string') {
+    return '字符串';
+  }
+  if (typeof value === 'number') {
+    return '数字';
+  }
+  if (typeof value === 'boolean') {
+    return '布尔值';
   }
   return typeof value;
 }
@@ -261,22 +286,28 @@ function renderPrimitive(value: unknown) {
 
 function statusText(status: StatusFilter) {
   if (status === 'all') {
-    return 'All';
+    return '全部';
+  }
+  if (status === 'success') {
+    return '成功';
+  }
+  if (status === 'error') {
+    return '异常';
   }
   if (status === 'failed') {
-    return 'Failed';
+    return '失败';
   }
-  return status.charAt(0).toUpperCase() + status.slice(1);
+  return status;
 }
 
 function stageText(stage: StageFilter) {
   if (stage === 'all') {
-    return 'All stages';
+    return '全阶段';
   }
   if (stage === 'dual') {
-    return 'Paired';
+    return '已配对';
   }
-  return stage === 'plain' ? 'Plain' : 'Wire';
+  return stage === 'plain' ? '明文' : '传输';
 }
 
 function captureGroupId(capture: CaptureRecord) {
@@ -290,10 +321,10 @@ function captureStageKey(capture: CaptureRecord) {
 function captureStageLabel(capture: CaptureRecord) {
   const stage = captureStageKey(capture);
   if (stage === 'plain') {
-    return 'Plain';
+    return '明文';
   }
   if (stage === 'wire') {
-    return 'Wire';
+    return '传输';
   }
   return stage;
 }
@@ -323,7 +354,7 @@ function groupCaptures(captures: CaptureRecord[]): CaptureGroup[] {
     .sort((a, b) => b.primary.startedAtEpochMs - a.primary.startedAtEpochMs);
 }
 
-async function copyText(text: string, onNotify: (message: string) => void, label = 'Copied') {
+async function copyText(text: string, onNotify: (message: string) => void, label = '已复制') {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);
@@ -339,7 +370,7 @@ async function copyText(text: string, onNotify: (message: string) => void, label
     }
     onNotify(label);
   } catch (error) {
-    onNotify(error instanceof Error ? error.message : 'Copy failed.');
+    onNotify(error instanceof Error ? error.message : '复制失败。');
   }
 }
 
@@ -403,7 +434,7 @@ function JsonNode({
   return (
     <div className="json-node">
       <div className="json-row" style={{ paddingLeft: depth * 16 }}>
-        <button type="button" className="json-toggle" onClick={() => onToggle(path)} aria-label={isCollapsed ? 'Expand JSON node' : 'Collapse JSON node'}>
+        <button type="button" className="json-toggle" onClick={() => onToggle(path)} aria-label={isCollapsed ? '展开 JSON 节点' : '折叠 JSON 节点'}>
           {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
         </button>
         {name !== undefined ? <span className="json-key">{parentIsArray ? `[${name}]` : JSON.stringify(String(name))}: </span> : null}
@@ -447,10 +478,10 @@ function JsonTree({ value }: { value: unknown }) {
       <div className="json-toolbar">
         <span>{summarizeJson(value)}</span>
         <button type="button" onClick={() => setCollapsed(new Set())}>
-          Expand all
+          全部展开
         </button>
         <button type="button" onClick={() => setCollapsed(new Set(expandablePaths))}>
-          Collapse all
+          全部折叠
         </button>
       </div>
       <div className="json-tree">
@@ -496,7 +527,7 @@ function StructuredInspector({ title, value, onNotify }: StructuredInspectorProp
       {title ? (
         <div className="section-heading">
           <h3>{title}</h3>
-          <CopyButton text={text} label={`Copied ${title}`} onNotify={onNotify} />
+          <CopyButton text={text} label={`已复制${title}`} onNotify={onNotify} />
         </div>
       ) : null}
       <JsonTree value={value} />
@@ -519,26 +550,26 @@ function BodyInspector({ title, body, contentType, contentLength, truncated, onN
         <div>
           <h3>
             {title}
-            {truncated ? <span className="truncated">truncated</span> : null}
+            {truncated ? <span className="truncated">已截断</span> : null}
           </h3>
           <div className="body-meta">
-            <span>{contentType ?? 'unknown content type'}</span>
+            <span>{contentType ?? '未知内容类型'}</span>
             <span>{measuredBodySize(body, contentLength)}</span>
-            <span>{parsedJson === undefined ? 'text/raw' : 'json parsed'}</span>
+            <span>{parsedJson === undefined ? '原始文本' : 'JSON 已解析'}</span>
           </div>
         </div>
         <div className="section-actions">
           <div className="mini-segmented">
             <button type="button" className={mode === 'pretty' ? 'active' : ''} disabled={parsedJson === undefined} onClick={() => setMode('pretty')}>
               <FileJson size={14} />
-              Pretty
+              美化
             </button>
             <button type="button" className={mode === 'raw' ? 'active' : ''} onClick={() => setMode('raw')}>
               <FileText size={14} />
-              Raw
+              原文
             </button>
           </div>
-          <CopyButton text={rawText} label={`Copied ${title}`} onNotify={onNotify} />
+          <CopyButton text={rawText} label={`已复制${title}`} onNotify={onNotify} />
         </div>
       </div>
       {mode === 'pretty' && parsedJson !== undefined ? <JsonTree value={parsedJson} /> : <CodeBlock text={rawText} />}
@@ -552,10 +583,10 @@ function HeaderTable({ title, headers, onNotify }: { title: string; headers: Hea
     <section className="detail-section">
       <div className="section-heading">
         <h3>{title}</h3>
-        <CopyButton text={JSON.stringify(headers, null, 2)} label={`Copied ${title}`} onNotify={onNotify} />
+        <CopyButton text={JSON.stringify(headers, null, 2)} label={`已复制${title}`} onNotify={onNotify} />
       </div>
       {rows.length === 0 ? (
-        <p className="empty-text">No headers.</p>
+        <p className="empty-text">没有头信息。</p>
       ) : (
         <div className="header-table">
           {rows.map((header) => (
@@ -563,7 +594,7 @@ function HeaderTable({ title, headers, onNotify }: { title: string; headers: Hea
               <div className="header-name">{header.name}</div>
               <div className="header-value">{header.value}</div>
               <div className="header-copy">
-                <CopyButton text={`${header.name}: ${header.value}`} label={`Copied ${header.name}`} onNotify={onNotify} />
+                <CopyButton text={`${header.name}: ${header.value}`} label={`已复制 ${header.name}`} onNotify={onNotify} />
               </div>
             </React.Fragment>
           ))}
@@ -589,8 +620,8 @@ function QueryParams({ url, onNotify }: { url: string; onNotify: (message: strin
   if (params.length === 0) {
     return (
       <section className="detail-section">
-        <h3>Query Parameters</h3>
-        <p className="empty-text">No query parameters.</p>
+        <h3>查询参数</h3>
+        <p className="empty-text">没有查询参数。</p>
       </section>
     );
   }
@@ -598,8 +629,8 @@ function QueryParams({ url, onNotify }: { url: string; onNotify: (message: strin
   return (
     <section className="detail-section">
       <div className="section-heading">
-        <h3>Query Parameters</h3>
-        <CopyButton text={JSON.stringify(Object.fromEntries(params), null, 2)} label="Copied query parameters" onNotify={onNotify} />
+        <h3>查询参数</h3>
+        <CopyButton text={JSON.stringify(Object.fromEntries(params), null, 2)} label="已复制查询参数" onNotify={onNotify} />
       </div>
       <div className="param-table">
         {params.map(([name, value], index) => (
@@ -619,7 +650,7 @@ function CurlBlock({ capture, onNotify }: { capture: CaptureRecord; onNotify: (m
     <section className="detail-section">
       <div className="section-heading">
         <h3>cURL</h3>
-        <CopyButton text={curl} label="Copied cURL" onNotify={onNotify} />
+        <CopyButton text={curl} label="已复制 cURL" onNotify={onNotify} />
       </div>
       <CodeBlock text={curl} />
     </section>
@@ -638,27 +669,27 @@ function StageCard({ capture }: { capture: CaptureRecord }) {
       </div>
       <div className="stage-facts">
         <div>
-          <span>Request Body</span>
+          <span>请求体</span>
           <strong>{requestJson === undefined ? measuredBodySize(capture.request.body, capture.request.contentLength) : summarizeJson(requestJson)}</strong>
         </div>
         <div>
-          <span>Response Body</span>
+          <span>响应体</span>
           <strong>
             {responseJson === undefined ? measuredBodySize(capture.response?.body, capture.response?.contentLength) : summarizeJson(responseJson)}
           </strong>
         </div>
         <div>
-          <span>Content Type</span>
+          <span>内容类型</span>
           <strong>{capture.response?.contentType ?? capture.request.contentType ?? '-'}</strong>
         </div>
       </div>
       <div className="preview-pair">
         <div>
-          <span>Request preview</span>
+          <span>请求预览</span>
           <code>{bodyText(capture.request.body).slice(0, 260)}</code>
         </div>
         <div>
-          <span>Response preview</span>
+          <span>响应预览</span>
           <code>{bodyText(capture.response?.body).slice(0, 260)}</code>
         </div>
       </div>
@@ -671,29 +702,29 @@ function StageCompare({ group }: { group: CaptureGroup }) {
   const wire = group.records.find((capture) => capture.stage === 'wire');
   const insights = [
     {
-      label: 'Request transform',
+      label: '请求转换',
       value:
         plain?.request.body && wire?.request.body && plain.request.body !== wire.request.body
-          ? 'Different bodies captured before and after app interceptors.'
-          : 'Request body is unchanged across stages.'
+          ? '明文阶段和传输阶段的请求体不同。'
+          : '请求体在两个阶段一致。'
     },
     {
-      label: 'Response transform',
+      label: '响应转换',
       value:
         plain?.response?.body && wire?.response?.body && plain.response.body !== wire.response.body
-          ? 'Response body differs between wire and plain views.'
-          : 'Response body is unchanged across stages.'
+          ? '传输阶段和明文阶段的响应体不同。'
+          : '响应体在两个阶段一致。'
     },
     {
-      label: 'Correlation',
-      value: `${group.records.length} stage record${group.records.length === 1 ? '' : 's'} share group ${group.id}.`
+      label: '关联分组',
+      value: `${group.records.length} 条阶段记录共享分组 ${group.id}。`
     }
   ];
 
   return (
     <div className="compare-layout">
       <section className="detail-section insight-panel">
-        <h3>Stage Insights</h3>
+        <h3>阶段分析</h3>
         <div className="insight-grid">
           {insights.map((item) => (
             <div key={item.label}>
@@ -704,8 +735,8 @@ function StageCompare({ group }: { group: CaptureGroup }) {
         </div>
       </section>
       <div className="stage-card-grid">
-        {plain ? <StageCard capture={plain} /> : <div className="missing-stage">Plain stage missing.</div>}
-        {wire ? <StageCard capture={wire} /> : <div className="missing-stage">Wire stage missing.</div>}
+        {plain ? <StageCard capture={plain} /> : <div className="missing-stage">缺少明文阶段。</div>}
+        {wire ? <StageCard capture={wire} /> : <div className="missing-stage">缺少传输阶段。</div>}
       </div>
     </div>
   );
@@ -718,6 +749,9 @@ function App() {
   const [stageFilter, setStageFilter] = useState<StageFilter>('all');
   const [methodFilter, setMethodFilter] = useState('all');
   const [followLive, setFollowLive] = useState(true);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [requestListWidth, setRequestListWidth] = useState(440);
+  const [isResizing, setIsResizing] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState<string>(sampleCaptures[0] ? captureGroupId(sampleCaptures[0]) : '');
   const [selectedStageKey, setSelectedStageKey] = useState('');
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
@@ -756,6 +790,27 @@ function App() {
       });
     });
   }, [api, followLive]);
+
+  useEffect(() => {
+    if (!isResizing) {
+      return undefined;
+    }
+
+    const onMouseMove = (event: MouseEvent) => {
+      const nextWidth = Math.min(Math.max(event.clientX - 16, 320), Math.min(760, window.innerWidth - 520));
+      setRequestListWidth(nextWidth);
+    };
+    const onMouseUp = () => setIsResizing(false);
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    document.body.classList.add('is-resizing');
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.body.classList.remove('is-resizing');
+    };
+  }, [isResizing]);
 
   const captures = state.captures.length > 0 ? state.captures : api ? [] : sampleCaptures;
   const captureGroups = useMemo(() => groupCaptures(captures), [captures]);
@@ -837,14 +892,14 @@ function App() {
 
   async function refreshDevices() {
     if (!api) {
-      setAdbMessage('ADB is available only in the Electron app.');
+      setAdbMessage('ADB 仅在桌面应用中可用。');
       return;
     }
     const result = await api.adbListDevices();
     setAdbDevices(result.devices ?? []);
     if (result.ok) {
       setAdbMessage(
-        `Found ${result.devices?.length ?? 0} device(s). ADB: ${result.adb?.version ?? result.adb?.path ?? 'available'}`
+        `发现 ${result.devices?.length ?? 0} 台设备。ADB：${result.adb?.version ?? result.adb?.path ?? '可用'}`
       );
     } else {
       setAdbMessage(result.error ?? result.adb?.installHint ?? result.stderr);
@@ -853,20 +908,20 @@ function App() {
 
   async function reversePort(serial?: string) {
     if (!api) {
-      setAdbMessage('ADB reverse is available only in the Electron app.');
+      setAdbMessage('ADB reverse 仅在桌面应用中可用。');
       return;
     }
     const result = await api.adbReverse(serial, state.server.port, state.server.devicePort);
     setAdbMessage(
       result.ok
-        ? `Mapped device tcp:${state.server.devicePort} to desktop tcp:${state.server.port} for ${serial ?? 'default device'}.`
+        ? `已为 ${serial ?? '默认设备'} 映射设备 tcp:${state.server.devicePort} 到桌面 tcp:${state.server.port}。`
         : result.error ?? result.adb?.installHint ?? result.stderr
     );
   }
 
   async function repairUsbMappings() {
     if (!api) {
-      setAdbMessage('ADB reverse is available only in the Electron app.');
+      setAdbMessage('ADB reverse 仅在桌面应用中可用。');
       return;
     }
 
@@ -883,7 +938,7 @@ function App() {
 
     const authorized = devices.filter((device) => device.state === 'device');
     if (authorized.length === 0) {
-      setAdbMessage('No authorized USB devices. Confirm the Android USB debugging prompt, then repair again.');
+      setAdbMessage('没有已授权的 USB 设备。请在手机上确认 USB 调试授权后再修复。');
       return;
     }
 
@@ -894,8 +949,8 @@ function App() {
     const firstFailure = results.find((result) => !result.ok);
     setAdbMessage(
       okCount === authorized.length
-        ? `Repaired USB reverse for ${okCount}/${authorized.length} device(s).`
-        : firstFailure?.error ?? firstFailure?.stderr ?? `Repaired USB reverse for ${okCount}/${authorized.length} device(s).`
+        ? `已修复 ${okCount}/${authorized.length} 台设备的 USB 映射。`
+        : firstFailure?.error ?? firstFailure?.stderr ?? `已修复 ${okCount}/${authorized.length} 台设备的 USB 映射。`
     );
   }
 
@@ -912,21 +967,21 @@ function App() {
 
   async function exportJson() {
     if (!api) {
-      setNoticeMessage('Export is available only in the Electron app.');
+      setNoticeMessage('导出仅在桌面应用中可用。');
       return;
     }
     const result = await api.exportJson();
     if (result.canceled) {
-      setNoticeMessage('Export canceled.');
+      setNoticeMessage('已取消导出。');
     } else if (result.ok) {
-      setNoticeMessage(`Exported ${result.count ?? 0} capture(s).`);
+      setNoticeMessage(`已导出 ${result.count ?? 0} 条捕获记录。`);
     } else {
-      setNoticeMessage(result.error ?? 'Export failed.');
+      setNoticeMessage(result.error ?? '导出失败。');
     }
   }
 
   const live = state.server.running && state.server.error === undefined;
-  const serverLabel = state.server.starting ? 'Starting' : live ? 'Listening' : 'Offline';
+  const serverLabel = state.server.starting ? '启动中' : live ? '监听中' : '离线';
   const usbReverse = state.server.usbReverse;
   const mappedUsbCount = usbReverse.devices.filter((device) => device.mapped).length;
   const authorizedUsbCount = usbReverse.devices.filter((device) => device.state === 'device').length;
@@ -939,20 +994,24 @@ function App() {
         : 'idle';
 
   return (
-    <div className="app">
-      <aside className="sidebar">
+    <div className={`app ${isResizing ? 'resizing' : ''}`}>
+      {drawerOpen ? <button type="button" className="drawer-backdrop" aria-label="关闭连接抽屉" onClick={() => setDrawerOpen(false)} /> : null}
+      <aside className={`sidebar drawer ${drawerOpen ? 'open' : ''}`}>
         <div className="brand">
           <MonitorSmartphone size={26} />
           <div>
             <h1>OkHttp Debug</h1>
-            <span>Desktop Console</span>
+            <span>桌面调试台</span>
           </div>
+          <button type="button" className="drawer-close" aria-label="关闭连接抽屉" onClick={() => setDrawerOpen(false)}>
+            <X size={17} />
+          </button>
         </div>
 
         <section className="panel server-panel">
           <div className="panel-title">
             <Server size={16} />
-            Server
+            服务
           </div>
           <div className="server-line">
             <span className={`dot ${live ? 'dot-live' : 'dot-idle'}`} />
@@ -961,30 +1020,30 @@ function App() {
           </div>
           {state.server.port !== state.server.preferredPort ? (
             <p className="hint-text">
-              Preferred port {state.server.preferredPort} was busy. USB clients still use device port {state.server.devicePort}.
+              首选端口 {state.server.preferredPort} 被占用。USB 客户端仍使用设备端口 {state.server.devicePort}。
             </p>
           ) : null}
           {state.server.error ? <p className="error-text">{state.server.error}</p> : null}
           {state.server.captureLogPath ? (
             <p className="hint-text log-path" title={state.server.captureLogPath}>
-              Log {state.server.captureLogPath}
+              日志 {state.server.captureLogPath}
             </p>
           ) : null}
           <div className="metric-grid">
             <div>
-              <span>Connections</span>
+              <span>连接数</span>
               <strong>{state.server.connectionCount}</strong>
             </div>
             <div>
-              <span>Groups</span>
+              <span>分组数</span>
               <strong>{captureGroups.length}</strong>
             </div>
             <div>
-              <span>Paired</span>
+              <span>已配对</span>
               <strong>{stats.paired}</strong>
             </div>
             <div>
-              <span>Avg Time</span>
+              <span>平均耗时</span>
               <strong>{formatDuration(stats.avgDuration)}</strong>
             </div>
           </div>
@@ -998,40 +1057,40 @@ function App() {
           <div className="button-row">
             <button type="button" onClick={refreshDevices}>
               <RefreshCw size={15} />
-              Devices
+              设备
             </button>
             <button type="button" onClick={repairUsbMappings}>
               <Cable size={15} />
-              Repair
+              修复
             </button>
           </div>
           <div className={`usb-auto-status usb-${usbStatusClass}`}>
             <span className="dot" />
-            <strong>{usbReverse.active ? 'Checking USB mapping' : usbReverse.error ? 'USB mapping needs attention' : mappedUsbCount > 0 ? 'USB mapping ready' : 'Waiting for USB device'}</strong>
+            <strong>{usbReverse.active ? '正在检查 USB 映射' : usbReverse.error ? 'USB 映射需要处理' : mappedUsbCount > 0 ? 'USB 映射正常' : '等待 USB 设备'}</strong>
             <small>{`tcp:${usbReverse.devicePort} -> tcp:${usbReverse.hostPort}`}</small>
           </div>
           <p className="hint-text">{usbReverse.message}</p>
           {usbReverse.error ? <p className="error-text">{usbReverse.error}</p> : null}
           {usbReverse.adb ? (
             <p className="hint-text">
-              ADB {usbReverse.adb.available ? 'available' : 'missing'}
-              {usbReverse.adb.source ? ` via ${usbReverse.adb.source}` : ''}
-              {usbReverse.lastSuccessEpochMs ? ` · last mapped ${formatTime(usbReverse.lastSuccessEpochMs)}` : ''}
+              ADB {usbReverse.adb.available ? '可用' : '缺失'}
+              {usbReverse.adb.source ? ` · 来源 ${usbReverse.adb.source}` : ''}
+              {usbReverse.lastSuccessEpochMs ? ` · 最近映射 ${formatTime(usbReverse.lastSuccessEpochMs)}` : ''}
             </p>
           ) : null}
           <div className="usb-summary">
-            <span>{mappedUsbCount}/{authorizedUsbCount || usbReverse.devices.length} mapped</span>
-            <span>{Math.round(usbReverse.intervalMs / 1000)}s auto check</span>
+            <span>{mappedUsbCount}/{authorizedUsbCount || usbReverse.devices.length} 已映射</span>
+            <span>{Math.round(usbReverse.intervalMs / 1000)} 秒自动检查</span>
           </div>
           <p className="hint-text">
-            Android connects to tcp:{state.server.devicePort}; ADB forwards it to desktop tcp:{state.server.port}.
+            Android 连接设备端口 tcp:{state.server.devicePort}；ADB 转发到桌面端口 tcp:{state.server.port}。
           </p>
           {usbReverse.devices.length > 0 ? (
             <div className="device-list auto-device-list">
               {usbReverse.devices.map((device) => (
                 <button key={`auto-${device.serial}`} type="button" onClick={() => reversePort(device.serial)}>
                   <span>{device.serial}</span>
-                  <small>{device.mapped ? 'mapped' : device.error ?? device.state}</small>
+                  <small>{device.mapped ? '已映射' : device.error ?? device.state}</small>
                 </button>
               ))}
             </div>
@@ -1052,17 +1111,17 @@ function App() {
         <section className="panel">
           <div className="panel-title">
             <CheckCircle2 size={16} />
-            Sessions
+            会话
           </div>
           {state.server.connections.length === 0 ? (
-            <p className="empty-text">No Android client connected.</p>
+            <p className="empty-text">暂无 Android 客户端连接。</p>
           ) : (
             <div className="session-list">
               {state.server.connections.map((connection) => (
                 <div key={connection.id} className="session-item">
                   <strong>{connection.app?.packageName ?? connection.id}</strong>
-                  <span>{connection.device ? `${connection.device.manufacturer ?? ''} ${connection.device.model ?? ''}` : 'Waiting for hello'}</span>
-                  <small>{connection.remoteAddress ?? 'local'} · {connection.tokenPresent ? 'token' : 'no token'}</small>
+                  <span>{connection.device ? `${connection.device.manufacturer ?? ''} ${connection.device.model ?? ''}` : '等待握手'}</span>
+                  <small>{connection.remoteAddress ?? '本机'} · {connection.tokenPresent ? '有 token' : '无 token'}</small>
                 </div>
               ))}
             </div>
@@ -1072,11 +1131,15 @@ function App() {
 
       <main className="workspace">
         <header className="toolbar">
+          <button type="button" className="drawer-trigger" onClick={() => setDrawerOpen(true)}>
+            <Menu size={17} />
+            连接
+          </button>
           <div className="search-box">
             <Search size={17} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search URL, body, tag, error" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 URL、正文、标签、错误" />
           </div>
-          <div className="segmented" aria-label="Status filter">
+          <div className="segmented" aria-label="状态筛选">
             {(['all', 'success', 'error', 'failed'] as StatusFilter[]).map((filter) => (
               <button
                 key={filter}
@@ -1091,20 +1154,20 @@ function App() {
           </div>
           <button type="button" className={followLive ? 'toolbar-toggle active' : 'toolbar-toggle'} onClick={() => setFollowLive((value) => !value)}>
             {followLive ? <PlayCircle size={16} /> : <PauseCircle size={16} />}
-            Follow
+            跟随
           </button>
           <button type="button" onClick={clearCaptures}>
             <Trash2 size={16} />
-            Clear
+            清空
           </button>
           <button type="button" onClick={exportJson}>
             <Download size={16} />
-            Export
+            导出
           </button>
         </header>
 
         <div className="sub-toolbar">
-          <div className="mini-segmented" aria-label="Stage filter">
+          <div className="mini-segmented" aria-label="阶段筛选">
             {(['all', 'dual', 'plain', 'wire'] as StageFilter[]).map((filter) => (
               <button key={filter} type="button" className={filter === stageFilter ? 'active' : ''} onClick={() => setStageFilter(filter)}>
                 <Columns3 size={14} />
@@ -1113,30 +1176,30 @@ function App() {
             ))}
           </div>
           <label className="select-filter">
-            Method
+            方法
             <select value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)}>
               {methodFilters.map((method) => (
                 <option key={method} value={method}>
-                  {method === 'all' ? 'All' : method}
+                  {method === 'all' ? '全部' : method}
                 </option>
               ))}
             </select>
           </label>
           <div className="quick-stats">
-            <span><Activity size={14} /> {stats.success} success</span>
-            <span><AlertTriangle size={14} /> {stats.error + stats.failed} issues</span>
-            <span><Timer size={14} /> Slowest {formatDuration(stats.slowest?.durationMs)}</span>
+            <span><Activity size={14} /> {stats.success} 成功</span>
+            <span><AlertTriangle size={14} /> {stats.error + stats.failed} 问题</span>
+            <span><Timer size={14} /> 最慢 {formatDuration(stats.slowest?.durationMs)}</span>
           </div>
         </div>
 
         {noticeMessage ? <div className="notice">{noticeMessage}</div> : null}
 
-        <div className="content-grid">
+        <div className="content-grid" style={{ gridTemplateColumns: `${requestListWidth}px 8px minmax(0, 1fr)` }}>
           <section className="request-list">
             {filteredCaptures.length === 0 ? (
               <div className="empty-state">
                 <ListRestart size={32} />
-                <p>No captures match the current filter.</p>
+                <p>没有符合当前筛选条件的捕获。</p>
               </div>
             ) : (
               filteredCaptures.map((group) => {
@@ -1177,6 +1240,16 @@ function App() {
             )}
           </section>
 
+          <div
+            className="splitter"
+            role="separator"
+            aria-label="调整接口列表宽度"
+            aria-orientation="vertical"
+            onMouseDown={() => setIsResizing(true)}
+          >
+            <GripVertical size={16} />
+          </div>
+
           <section className="details">
             {selected ? (
               <>
@@ -1191,14 +1264,14 @@ function App() {
                     <p>{selected.request.url}</p>
                   </div>
                   <div className="header-actions">
-                    <CopyButton text={selected.request.url} label="Copied URL" onNotify={setNoticeMessage} />
-                    <CopyButton text={selected.groupId} label="Copied group id" onNotify={setNoticeMessage} />
+                    <CopyButton text={selected.request.url} label="已复制 URL" onNotify={setNoticeMessage} />
+                    <CopyButton text={selected.groupId} label="已复制分组 ID" onNotify={setNoticeMessage} />
                     {selected.error ? <AlertTriangle className="warning-icon" size={22} /> : null}
                   </div>
                 </div>
 
                 {selectedGroup && selectedGroup.records.length > 1 ? (
-                  <div className="stage-switch" aria-label="Capture stage">
+                  <div className="stage-switch" aria-label="捕获阶段">
                     {selectedGroup.records.map((record) => (
                       <button
                         key={record.id}
@@ -1216,7 +1289,7 @@ function App() {
                 <nav className="tabs">
                   {(['overview', 'compare', 'headers', 'request', 'response', 'timing', 'error'] as DetailTab[]).map((tab) => (
                     <button key={tab} type="button" className={activeTab === tab ? 'active' : ''} onClick={() => setActiveTab(tab)}>
-                      {tab}
+                      {DETAIL_TAB_LABELS[tab]}
                     </button>
                   ))}
                 </nav>
@@ -1225,20 +1298,20 @@ function App() {
                   {activeTab === 'overview' ? (
                     <>
                       <div className="overview-grid">
-                        <div><span>Started</span><strong>{new Date(selected.startedAtEpochMs).toLocaleString()}</strong></div>
-                        <div><span>Duration</span><strong>{formatDuration(selected.durationMs)}</strong></div>
-                        <div><span>Response</span><strong>{selected.response ? `${selected.response.code} ${selected.response.message}` : '-'}</strong></div>
-                        <div><span>Content Type</span><strong>{selected.response?.contentType ?? selected.request.contentType ?? '-'}</strong></div>
-                        <div><span>Request Size</span><strong>{measuredBodySize(selected.request.body, selected.request.contentLength)}</strong></div>
-                        <div><span>Response Size</span><strong>{measuredBodySize(selected.response?.body, selected.response?.contentLength)}</strong></div>
-                        <div><span>App</span><strong>{selected.source?.app?.packageName ?? '-'}</strong></div>
-                        <div><span>Device</span><strong>{selected.source?.device ? `${selected.source.device.manufacturer ?? ''} ${selected.source.device.model ?? ''}` : '-'}</strong></div>
-                        <div><span>Stage</span><strong>{captureStageLabel(selected)}</strong></div>
-                        <div><span>Group</span><strong>{selected.groupId}</strong></div>
+                        <div><span>开始时间</span><strong>{new Date(selected.startedAtEpochMs).toLocaleString()}</strong></div>
+                        <div><span>耗时</span><strong>{formatDuration(selected.durationMs)}</strong></div>
+                        <div><span>响应</span><strong>{selected.response ? `${selected.response.code} ${selected.response.message}` : '-'}</strong></div>
+                        <div><span>内容类型</span><strong>{selected.response?.contentType ?? selected.request.contentType ?? '-'}</strong></div>
+                        <div><span>请求大小</span><strong>{measuredBodySize(selected.request.body, selected.request.contentLength)}</strong></div>
+                        <div><span>响应大小</span><strong>{measuredBodySize(selected.response?.body, selected.response?.contentLength)}</strong></div>
+                        <div><span>应用</span><strong>{selected.source?.app?.packageName ?? '-'}</strong></div>
+                        <div><span>设备</span><strong>{selected.source?.device ? `${selected.source.device.manufacturer ?? ''} ${selected.source.device.model ?? ''}` : '-'}</strong></div>
+                        <div><span>阶段</span><strong>{captureStageLabel(selected)}</strong></div>
+                        <div><span>分组</span><strong>{selected.groupId}</strong></div>
                       </div>
                       <QueryParams url={selected.request.url} onNotify={setNoticeMessage} />
                       <CurlBlock capture={selected} onNotify={setNoticeMessage} />
-                      <StructuredInspector title="Tags" value={selected.tags ?? {}} onNotify={setNoticeMessage} />
+                      <StructuredInspector title="标签" value={selected.tags ?? {}} onNotify={setNoticeMessage} />
                     </>
                   ) : null}
 
@@ -1246,14 +1319,14 @@ function App() {
 
                   {activeTab === 'headers' ? (
                     <>
-                      <HeaderTable title="Request Headers" headers={selected.request.headers} onNotify={setNoticeMessage} />
-                      {selected.response ? <HeaderTable title="Response Headers" headers={selected.response.headers} onNotify={setNoticeMessage} /> : null}
+                      <HeaderTable title="请求头" headers={selected.request.headers} onNotify={setNoticeMessage} />
+                      {selected.response ? <HeaderTable title="响应头" headers={selected.response.headers} onNotify={setNoticeMessage} /> : null}
                     </>
                   ) : null}
 
                   {activeTab === 'request' ? (
                     <BodyInspector
-                      title="Request Body"
+                      title="请求体"
                       body={selected.request.body}
                       contentType={selected.request.contentType}
                       contentLength={selected.request.contentLength}
@@ -1264,7 +1337,7 @@ function App() {
 
                   {activeTab === 'response' ? (
                     <BodyInspector
-                      title="Response Body"
+                      title="响应体"
                       body={selected.response?.body}
                       contentType={selected.response?.contentType}
                       contentLength={selected.response?.contentLength}
@@ -1274,18 +1347,18 @@ function App() {
                   ) : null}
 
                   {activeTab === 'timing' ? (
-                    <StructuredInspector title="Timing" value={selected.timing ?? {}} onNotify={setNoticeMessage} />
+                    <StructuredInspector title="耗时" value={selected.timing ?? {}} onNotify={setNoticeMessage} />
                   ) : null}
 
                   {activeTab === 'error' ? (
                     <section className="detail-section">
                       <div className="section-heading">
-                        <h3>Error</h3>
+                        <h3>错误</h3>
                         {selected.error ? (
-                          <CopyButton text={JSON.stringify(selected.error, null, 2)} label="Copied error" onNotify={setNoticeMessage} />
+                          <CopyButton text={JSON.stringify(selected.error, null, 2)} label="已复制错误" onNotify={setNoticeMessage} />
                         ) : null}
                       </div>
-                      {selected.error ? <JsonTree value={selected.error} /> : <p className="empty-text">No error captured.</p>}
+                      {selected.error ? <JsonTree value={selected.error} /> : <p className="empty-text">没有捕获到错误。</p>}
                     </section>
                   ) : null}
                 </div>
@@ -1293,7 +1366,7 @@ function App() {
             ) : (
               <div className="empty-state">
                 <ClipboardList size={36} />
-                <p>Waiting for OkHttp captures.</p>
+                <p>等待 OkHttp 捕获数据。</p>
               </div>
             )}
           </section>

@@ -15,7 +15,7 @@
 
 body {
   margin: 0;
-  min-width: 1160px;
+  min-width: 1040px;
   background:
     linear-gradient(180deg, #f6f8fb 0%, #e9eef4 100%);
 }
@@ -38,13 +38,19 @@ button:disabled {
 
 .app {
   display: grid;
-  grid-template-columns: 306px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   height: 100vh;
   min-height: 720px;
 }
 
 .sidebar {
+  position: fixed;
+  z-index: 30;
+  top: 0;
+  bottom: 0;
+  left: 0;
   display: flex;
+  width: 338px;
   min-height: 0;
   flex-direction: column;
   gap: 14px;
@@ -52,6 +58,37 @@ button:disabled {
   padding: 18px;
   border-right: 1px solid #d8e0ea;
   background: rgba(250, 252, 255, 0.94);
+  box-shadow: 18px 0 40px rgba(15, 23, 42, 0.16);
+  transform: translateX(-105%);
+  transition: transform 160ms ease;
+}
+
+.sidebar.open {
+  transform: translateX(0);
+}
+
+.drawer-backdrop {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.24);
+}
+
+.drawer-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+  border: 1px solid #d6dee8;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #334155;
+}
+
+.drawer-close:hover {
+  background: #f2f6fa;
 }
 
 .brand {
@@ -355,9 +392,14 @@ button:disabled {
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) auto auto auto auto;
+  grid-template-columns: auto minmax(280px, 1fr) auto auto auto auto;
   gap: 10px;
   align-items: center;
+}
+
+.drawer-trigger {
+  padding: 0 12px;
+  font-weight: 800;
 }
 
 .sub-toolbar {
@@ -476,9 +518,42 @@ button:disabled {
 
 .content-grid {
   display: grid;
-  grid-template-columns: 440px minmax(0, 1fr);
-  gap: 12px;
+  gap: 0;
   min-height: 0;
+}
+
+.splitter {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  place-items: center;
+  color: #64748b;
+  cursor: col-resize;
+}
+
+.splitter::before {
+  position: absolute;
+  width: 1px;
+  height: calc(100% - 16px);
+  content: "";
+  background: #d9e0e8;
+}
+
+.splitter svg {
+  z-index: 1;
+  padding: 2px 0;
+  border-radius: 999px;
+  background: #e9eef4;
+}
+
+.splitter:hover,
+.resizing .splitter {
+  color: #0f766e;
+}
+
+body.is-resizing {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .request-list,
@@ -489,6 +564,16 @@ button:disabled {
   border-radius: 8px;
   background: #ffffff;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.request-list {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.details {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
 }
 
 .request-list {

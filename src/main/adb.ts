@@ -13,7 +13,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const ADB_INSTALL_HINT =
-  'ADB was not found. Install Android SDK Platform-Tools from Android Studio SDK Manager or Google Platform-Tools, then set ADB_PATH or ANDROID_HOME. A bundled adb can also be shipped under resources/platform-tools/<platform>/adb.';
+  '未找到 ADB。请通过 Android Studio SDK Manager 或 Google Platform-Tools 安装 Android SDK Platform-Tools，并设置 ADB_PATH 或 ANDROID_HOME；也可以把内置 ADB 放到 resources/platform-tools/<platform>/adb。';
 
 interface AdbCandidate {
   path: string;

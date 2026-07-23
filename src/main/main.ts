@@ -69,7 +69,7 @@ app.whenReady().then(() => {
     devicePort: DEFAULT_DEVICE_WS_PORT,
     intervalMs: 0,
     devices: [],
-    message: 'USB auto reverse is not configured.'
+    message: 'USB 自动映射未配置。'
   });
   registerIpcHandlers(captureServer, () => BrowserWindow.getFocusedWindow(), adbReverseManager);
   captureServer.start();

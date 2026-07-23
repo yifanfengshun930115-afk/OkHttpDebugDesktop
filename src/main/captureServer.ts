@@ -47,7 +47,7 @@ export class CaptureServer {
       devicePort: this.devicePort,
       intervalMs: 0,
       devices: [],
-      message: 'USB auto reverse is not configured.'
+      message: 'USB 自动映射未配置。'
     });
   }
 
@@ -86,7 +86,7 @@ export class CaptureServer {
       this.starting = false;
       this.serverError =
         error.code === 'EADDRINUSE'
-          ? `No free local WebSocket port in ${this.preferredPort}-${this.portRangeEnd}.`
+          ? `本地 WebSocket 端口 ${this.preferredPort}-${this.portRangeEnd} 均不可用。`
           : error.message;
       this.onChange();
     });
@@ -243,7 +243,7 @@ export class CaptureServer {
         this.onChange();
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown WebSocket message error.';
+      const message = error instanceof Error ? error.message : '未知 WebSocket 消息错误。';
       this.captureLogWriter?.log({
         type: 'message_error',
         connection: this.toConnectionInfo(connection),
