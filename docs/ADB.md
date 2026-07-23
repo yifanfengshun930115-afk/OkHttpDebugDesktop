@@ -20,6 +20,12 @@ For product builds, run this on each release machine before Tauri packaging:
 npm run prepare:adb
 ```
 
+GitHub Actions uses the official Google Platform-Tools download instead:
+
+```bash
+npm run fetch:adb
+```
+
 The script finds the local Android SDK Platform-Tools directory and copies it to
 the current platform resource folder. You can also place platform-tools binaries
 manually under:

@@ -4,6 +4,7 @@ import process from 'node:process';
 
 const args = process.argv.slice(2);
 const platform = getArgValue('--platform') ?? currentBuildPlatform();
+const target = getArgValue('--target');
 
 function getArgValue(name) {
   const equalPrefix = `${name}=`;
@@ -48,11 +49,19 @@ function run(command, commandArgs) {
   });
 }
 
+function tauriBuildArgs(bundles) {
+  const buildArgs = ['tauri', 'build', '--bundles', bundles];
+  if (target) {
+    buildArgs.push('--target', target);
+  }
+  return buildArgs;
+}
+
 async function packageMacos() {
   if (process.platform !== 'darwin') {
     throw new Error('macOS packages must be built on macOS.');
   }
-  await run('npx', ['tauri', 'build', '--bundles', 'app,dmg']);
+  await run('npx', tauriBuildArgs('app,dmg'));
 }
 
 async function packageWindows() {
@@ -61,7 +70,7 @@ async function packageWindows() {
       'Windows NSIS packages must be built on Windows or a CI runner with the Windows Tauri toolchain.'
     );
   }
-  await run('npx', ['tauri', 'build', '--bundles', 'nsis']);
+  await run('npx', tauriBuildArgs('nsis'));
 }
 
 try {

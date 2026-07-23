@@ -20,6 +20,52 @@ Tauri bundler tools are cached under `src-tauri/target/.tauri` through
 `bundle.useLocalToolsDir`, so repeat packaging does not need to download tools
 again on the same release machine.
 
+## GitHub Actions
+
+The release workflow lives at:
+
+```text
+.github/workflows/desktop-packages.yml
+```
+
+It builds:
+
+```text
+macOS arm64 DMG on macos-latest
+macOS x64 DMG on macos-latest
+Windows x64 NSIS installer on windows-2022
+```
+
+Manual build:
+
+1. Open the repository on GitHub.
+2. Go to Actions.
+3. Select Desktop Packages.
+4. Choose Run workflow on the `tauri-poc` branch.
+5. Download the generated artifacts after both jobs finish.
+
+Release build:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Pushing a `v*` tag builds both platforms and uploads the DMG/EXE to the GitHub
+Release for that tag.
+
+GitHub Actions downloads official Android SDK Platform-Tools with:
+
+```bash
+npm run fetch:adb
+```
+
+Local release machines can still use an installed Android SDK with:
+
+```bash
+npm run prepare:adb
+```
+
 ## macOS
 
 Build on macOS:

@@ -13,6 +13,7 @@
     "build:renderer:if-stale": "node scripts/build-renderer-if-stale.mjs",
     "build": "npm run typecheck && vite build && tsc -p tsconfig.electron.json",
     "prepare:adb": "node scripts/prepare-adb-resource.mjs",
+    "fetch:adb": "node scripts/fetch-platform-tools.mjs",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "tauri:dev": "tauri dev",
