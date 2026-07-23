@@ -61,6 +61,7 @@ interface CaptureGroup {
   id: string;
   primary: CaptureRecord;
   records: CaptureRecord[];
+  lastReceivedAtEpochMs: number;
 }
 
 interface SourceFacet {
@@ -553,6 +554,10 @@ function choosePrimary(records: CaptureRecord[]) {
   );
 }
 
+function captureReceivedAt(capture: CaptureRecord) {
+  return capture.receivedAtEpochMs || capture.startedAtEpochMs;
+}
+
 function groupCaptures(captures: CaptureRecord[]): CaptureGroup[] {
   const groups = new Map<string, CaptureRecord[]>();
   for (const capture of captures) {
@@ -564,10 +569,11 @@ function groupCaptures(captures: CaptureRecord[]): CaptureGroup[] {
     .map(([id, records]) => ({
       id,
       records,
-      primary: choosePrimary(records)
+      primary: choosePrimary(records),
+      lastReceivedAtEpochMs: records.reduce((latest, capture) => Math.max(latest, captureReceivedAt(capture)), 0)
     }))
     .filter((group): group is CaptureGroup => Boolean(group.primary))
-    .sort((a, b) => b.primary.startedAtEpochMs - a.primary.startedAtEpochMs);
+    .sort((a, b) => b.lastReceivedAtEpochMs - a.lastReceivedAtEpochMs);
 }
 
 async function copyText(text: string, onNotify: (message: string) => void, label = '已复制') {
@@ -1038,10 +1044,11 @@ function App() {
     }
 
     void api.getState().then((nextState) => {
-      initializeKnownGroups(groupCaptures(nextState.captures));
+      const nextGroups = groupCaptures(nextState.captures);
+      initializeKnownGroups(nextGroups);
       setState(nextState);
-      if (nextState.captures[0]) {
-        setSelectedGroupId(captureGroupId(nextState.captures[0]));
+      if (nextGroups[0]) {
+        setSelectedGroupId(nextGroups[0].id);
         setSelectedStageKey('');
       }
     });
@@ -1733,7 +1740,7 @@ function App() {
                       ))}
                     </div>
                     <div className="row-bottom">
-                      <small>{formatTime(capture.startedAtEpochMs)}</small>
+                      <small title="桌面端接收时间">{formatTime(group.lastReceivedAtEpochMs)}</small>
                       <div className="stage-strip">
                         {group.records.map((record) => (
                           <span key={record.id} className={`stage-pill stage-${captureStageKey(record)}`}>
