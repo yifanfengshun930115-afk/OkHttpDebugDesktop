@@ -63,6 +63,16 @@ interface CaptureGroup {
   records: CaptureRecord[];
 }
 
+interface SourceFacet {
+  key: string;
+  label: string;
+  title: string;
+}
+
+interface SourceChip extends SourceFacet {
+  kind: 'device' | 'client';
+}
+
 interface BodyInspectorProps {
   title: string;
   body?: string;
@@ -202,6 +212,102 @@ function getScheme(url: string) {
   } catch {
     return 'URL';
   }
+}
+
+function cleanFacetText(value: unknown) {
+  if (typeof value === 'string') {
+    const cleaned = value.trim();
+    return cleaned.length > 0 ? cleaned : undefined;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return undefined;
+}
+
+function compactLabel(value: string, maxLength = 44) {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
+}
+
+function shortConnectionId(connectionId?: string) {
+  if (!connectionId) {
+    return undefined;
+  }
+  return connectionId.replace(/^conn-/, '#').slice(-18);
+}
+
+function captureClientTag(capture: CaptureRecord) {
+  const sourceTag = cleanFacetText(capture.source?.clientTag);
+  if (sourceTag) {
+    return sourceTag;
+  }
+
+  const tags = capture.tags ?? {};
+  return (
+    cleanFacetText(tags.clientTag) ??
+    cleanFacetText(tags.staticTag) ??
+    cleanFacetText(tags.source) ??
+    cleanFacetText(tags.flavor) ??
+    cleanFacetText(tags.channel)
+  );
+}
+
+function deviceFacet(capture: CaptureRecord): SourceChip {
+  const device = capture.source?.device;
+  const model = [device?.manufacturer, device?.model].map(cleanFacetText).filter(Boolean).join(' ');
+  const sdk = device?.sdkInt !== undefined ? `API ${device.sdkInt}` : undefined;
+  const stableTag = cleanFacetText(device?.deviceTag) ?? cleanFacetText(device?.androidId);
+  const connectionTag = shortConnectionId(capture.connectionId);
+  const fallbackTag = stableTag ?? connectionTag;
+  const baseLabel = model || '未知设备';
+  const label = compactLabel(fallbackTag ? `${baseLabel} · ${fallbackTag}` : baseLabel);
+  const key = `device:${stableTag ?? `${model || 'unknown'}|${sdk ?? ''}|${capture.connectionId ?? 'unknown'}`}`;
+
+  return {
+    kind: 'device',
+    key,
+    label,
+    title: [baseLabel, sdk, stableTag, connectionTag ? `连接 ${connectionTag}` : undefined].filter(Boolean).join(' · ')
+  };
+}
+
+function clientFacet(capture: CaptureRecord): SourceChip {
+  const appPackage = cleanFacetText(capture.source?.app?.packageName);
+  const version = cleanFacetText(capture.source?.app?.versionName);
+  const tag = captureClientTag(capture);
+  const sessionTag = shortConnectionId(capture.sessionId);
+  const label = compactLabel(appPackage && tag ? `${appPackage} · ${tag}` : tag ?? appPackage ?? sessionTag ?? '未知客户端');
+  const key = `client:${appPackage ?? 'unknown'}|${tag ?? capture.sessionId ?? capture.connectionId ?? 'unknown'}`;
+
+  return {
+    kind: 'client',
+    key,
+    label,
+    title: [appPackage, version, tag, sessionTag ? `会话 ${sessionTag}` : undefined].filter(Boolean).join(' · ')
+  };
+}
+
+function uniqueFacetsForGroup(group: CaptureGroup, selector: (capture: CaptureRecord) => SourceFacet) {
+  const facets = new Map<string, SourceFacet>();
+  for (const record of group.records) {
+    const facet = selector(record);
+    facets.set(facet.key, facet);
+  }
+  return [...facets.values()];
+}
+
+function buildFacetOptions(groups: CaptureGroup[], selector: (capture: CaptureRecord) => SourceFacet) {
+  const facets = new Map<string, SourceFacet>();
+  for (const group of groups) {
+    for (const facet of uniqueFacetsForGroup(group, selector)) {
+      facets.set(facet.key, facet);
+    }
+  }
+  return [...facets.values()].sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function groupMatchesFacet(group: CaptureGroup, selectedKey: string, selector: (capture: CaptureRecord) => SourceFacet) {
+  return selectedKey === 'all' || uniqueFacetsForGroup(group, selector).some((facet) => facet.key === selectedKey);
 }
 
 function flattenHeaders(headers: HeadersRecord) {
@@ -858,6 +964,8 @@ function App() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [stageFilter, setStageFilter] = useState<StageFilter>('all');
   const [methodFilter, setMethodFilter] = useState('all');
+  const [deviceFilter, setDeviceFilter] = useState('all');
+  const [clientFilter, setClientFilter] = useState('all');
   const [followLive, setFollowLive] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [requestListWidth, setRequestListWidth] = useState(440);
@@ -978,6 +1086,20 @@ function App() {
     () => ['all', ...Array.from(new Set(captureGroups.map((group) => group.primary.request.method.toUpperCase()))).sort()],
     [captureGroups]
   );
+  const deviceFilters = useMemo(() => buildFacetOptions(captureGroups, deviceFacet), [captureGroups]);
+  const clientFilters = useMemo(() => buildFacetOptions(captureGroups, clientFacet), [captureGroups]);
+
+  useEffect(() => {
+    if (deviceFilter !== 'all' && !deviceFilters.some((filter) => filter.key === deviceFilter)) {
+      setDeviceFilter('all');
+    }
+  }, [deviceFilter, deviceFilters]);
+
+  useEffect(() => {
+    if (clientFilter !== 'all' && !clientFilters.some((filter) => filter.key === clientFilter)) {
+      setClientFilter('all');
+    }
+  }, [clientFilter, clientFilters]);
 
   const stats = useMemo(() => {
     const primaries = captureGroups.map((group) => group.primary);
@@ -1017,14 +1139,27 @@ function App() {
         return false;
       }
 
+      if (!groupMatchesFacet(group, deviceFilter, deviceFacet)) {
+        return false;
+      }
+
+      if (!groupMatchesFacet(group, clientFilter, clientFacet)) {
+        return false;
+      }
+
       if (!normalized) {
         return true;
       }
 
       const stageLabels = group.records.map(captureStageLabel).join(' ');
+      const sourceLabels = [
+        ...uniqueFacetsForGroup(group, deviceFacet),
+        ...uniqueFacetsForGroup(group, clientFacet)
+      ].flatMap((facet) => [facet.label, facet.title]);
       const haystack = [
         group.id,
         stageLabels,
+        ...sourceLabels,
         ...group.records.flatMap((capture) => [
           capture.id,
           capture.request.method,
@@ -1034,6 +1169,10 @@ function App() {
           capture.response?.code,
           capture.error?.message,
           capture.source?.app?.packageName,
+          capture.source?.device?.manufacturer,
+          capture.source?.device?.model,
+          capture.source?.device?.deviceTag,
+          capture.source?.clientTag,
           JSON.stringify(capture.tags ?? {})
         ])
       ]
@@ -1043,9 +1182,13 @@ function App() {
 
       return haystack.includes(normalized);
     });
-  }, [captureGroups, methodFilter, query, stageFilter, statusFilter]);
+  }, [captureGroups, clientFilter, deviceFilter, methodFilter, query, stageFilter, statusFilter]);
 
-  const selectedGroup = captureGroups.find((group) => group.id === selectedGroupId) ?? filteredCaptures[0] ?? captureGroups[0];
+  const selectedGroup =
+    filteredCaptures.find((group) => group.id === selectedGroupId) ??
+    filteredCaptures[0] ??
+    captureGroups.find((group) => group.id === selectedGroupId) ??
+    captureGroups[0];
   const selected =
     selectedGroup?.records.find((capture) => selectedStageKey && captureStageKey(capture) === selectedStageKey) ??
     selectedGroup?.primary;
@@ -1384,7 +1527,9 @@ function App() {
                 <div key={connection.id} className="session-item">
                   <strong>{connection.app?.packageName ?? connection.id}</strong>
                   <span>{connection.device ? `${connection.device.manufacturer ?? ''} ${connection.device.model ?? ''}` : '等待握手'}</span>
-                  <small>{connection.remoteAddress ?? '本机'} · {connection.tokenPresent ? '有 token' : '无 token'}</small>
+                  <small>
+                    {[connection.remoteAddress ?? '本机', connection.clientTag ?? (connection.tokenPresent ? 'token 已隐藏' : '无标签')].join(' · ')}
+                  </small>
                 </div>
               ))}
             </div>
@@ -1448,6 +1593,28 @@ function App() {
               ))}
             </select>
           </label>
+          <label className="select-filter source-filter">
+            设备
+            <select value={deviceFilter} onChange={(event) => setDeviceFilter(event.target.value)}>
+              <option value="all">全部设备</option>
+              {deviceFilters.map((filter) => (
+                <option key={filter.key} value={filter.key}>
+                  {filter.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="select-filter source-filter">
+            客户端
+            <select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}>
+              <option value="all">全部客户端</option>
+              {clientFilters.map((filter) => (
+                <option key={filter.key} value={filter.key}>
+                  {filter.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="quick-stats">
             <span><Activity size={14} /> {stats.success} 成功</span>
             <span><AlertTriangle size={14} /> {stats.error + stats.failed} 问题</span>
@@ -1465,6 +1632,7 @@ function App() {
             ) : (
               filteredCaptures.map((group) => {
                 const capture = group.primary;
+                const sourceChips = [deviceFacet(capture), clientFacet(capture)];
                 return (
                   <button
                     key={group.id}
@@ -1484,6 +1652,13 @@ function App() {
                     </div>
                     <strong>{getPath(capture.request.url)}</strong>
                     <span>{getHost(capture.request.url)}</span>
+                    <div className="source-chip-row">
+                      {sourceChips.map((chip) => (
+                        <span key={chip.kind} className={`source-chip source-chip-${chip.kind}`} title={chip.title}>
+                          {chip.label}
+                        </span>
+                      ))}
+                    </div>
                     <div className="row-bottom">
                       <small>{formatTime(capture.startedAtEpochMs)}</small>
                       <div className="stage-strip">
@@ -1561,7 +1736,8 @@ function App() {
                         <div><span>请求大小</span><strong>{measuredBodySize(selected.request.body, selected.request.contentLength)}</strong></div>
                         <div><span>响应大小</span><strong>{measuredBodySize(selected.response?.body, selected.response?.contentLength)}</strong></div>
                         <div><span>应用</span><strong>{selected.source?.app?.packageName ?? '-'}</strong></div>
-                        <div><span>设备</span><strong>{selected.source?.device ? `${selected.source.device.manufacturer ?? ''} ${selected.source.device.model ?? ''}` : '-'}</strong></div>
+                        <div><span>设备</span><strong>{deviceFacet(selected).label}</strong></div>
+                        <div><span>客户端</span><strong>{clientFacet(selected).label}</strong></div>
                         <div><span>阶段</span><strong>{captureStageLabel(selected)}</strong></div>
                         <div><span>分组</span><strong>{selected.groupId}</strong></div>
                       </div>

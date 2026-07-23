@@ -20,6 +20,8 @@ export interface AndroidDeviceInfo {
   manufacturer?: string;
   model?: string;
   sdkInt?: number;
+  deviceTag?: string;
+  androidId?: string;
 }
 
 export interface HelloMessage {
@@ -29,6 +31,8 @@ export interface HelloMessage {
   device: AndroidDeviceInfo;
   sessionId: string;
   token?: string;
+  clientTag?: string;
+  staticTag?: string;
 }
 
 export interface HttpPayload {
@@ -104,6 +108,7 @@ export interface CaptureRecord extends CaptureMessage {
   source?: {
     app?: AndroidAppInfo;
     device?: AndroidDeviceInfo;
+    clientTag?: string;
   };
 }
 
@@ -117,6 +122,7 @@ export interface ConnectionInfo {
   device?: AndroidDeviceInfo;
   protocolVersion?: number;
   tokenPresent: boolean;
+  clientTag?: string;
 }
 
 export interface ServerState {

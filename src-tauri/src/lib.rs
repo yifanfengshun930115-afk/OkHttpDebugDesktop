@@ -85,6 +85,7 @@ struct ConnectionInfo {
     device: Option<Value>,
     protocol_version: Option<u64>,
     token_present: bool,
+    client_tag: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -656,6 +657,7 @@ fn handle_socket(stream: TcpStream, app: AppHandle, shared: SharedAppState) {
             device: None,
             protocol_version: None,
             token_present: false,
+            client_tag: None,
         });
         model.server.connection_count = model.server.connections.len();
     });
@@ -741,7 +743,11 @@ fn handle_client_message(
                 .and_then(Value::as_str)
                 .map(ToOwned::to_owned);
             let protocol_version = parsed.get("protocolVersion").and_then(Value::as_u64);
-            let token_present = parsed.get("token").and_then(Value::as_str).is_some();
+            let token_present = parsed
+                .get("token")
+                .and_then(Value::as_str)
+                .is_some_and(|token| !token.trim().is_empty());
+            let client_tag = client_tag_from_hello(&parsed);
 
             shared.mutate(|model| {
                 if let Some(connection) = model
@@ -755,11 +761,12 @@ fn handle_client_message(
                     connection.device = device_info;
                     connection.protocol_version = protocol_version;
                     connection.token_present = token_present;
+                    connection.client_tag = client_tag.clone();
                 }
             });
             append_log(
                 shared,
-                json!({ "type": "hello", "connectionId": connection_id }),
+                json!({ "type": "hello", "connectionId": connection_id, "clientTag": client_tag }),
             );
             emit_state(app, shared);
             Some(
@@ -812,6 +819,59 @@ fn handle_client_message(
     }
 }
 
+fn client_tag_from_hello(message: &Value) -> Option<String> {
+    string_field(message, &["clientTag", "staticTag", "tag"])
+        .or_else(|| {
+            message.get("tags").and_then(|tags| {
+                string_field(tags, &["clientTag", "staticTag", "source", "app", "flavor"])
+            })
+        })
+        .or_else(|| {
+            message
+                .get("token")
+                .and_then(Value::as_str)
+                .and_then(|token| {
+                    if token.trim().is_empty() {
+                        None
+                    } else {
+                        Some(format!(
+                            "token:{:012x}",
+                            stable_hash64(token.as_bytes()) & 0x0000_ffff_ffff_ffff
+                        ))
+                    }
+                })
+        })
+}
+
+fn string_field(value: &Value, names: &[&str]) -> Option<String> {
+    names
+        .iter()
+        .filter_map(|name| value.get(*name).and_then(Value::as_str))
+        .find_map(sanitize_client_tag)
+}
+
+fn sanitize_client_tag(value: &str) -> Option<String> {
+    let cleaned = value
+        .trim()
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(80)
+        .collect::<String>();
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned)
+    }
+}
+
+fn stable_hash64(bytes: &[u8]) -> u64 {
+    const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+    bytes.iter().fold(FNV_OFFSET, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(FNV_PRIME)
+    })
+}
+
 fn shared_connection_source(shared: &SharedAppState, connection_id: &str) -> Value {
     let model = shared.0.lock().expect("state lock poisoned");
     if let Some(connection) = model
@@ -823,6 +883,7 @@ fn shared_connection_source(shared: &SharedAppState, connection_id: &str) -> Val
         json!({
           "app": connection.app.clone(),
           "device": connection.device.clone(),
+          "clientTag": connection.client_tag.clone(),
         })
     } else {
         json!({})

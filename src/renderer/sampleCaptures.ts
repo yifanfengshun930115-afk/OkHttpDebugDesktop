@@ -12,7 +12,8 @@ const app = {
 const device = {
   manufacturer: 'Google',
   model: 'Pixel 8',
-  sdkInt: 35
+  sdkInt: 35,
+  deviceTag: 'android:sample'
 };
 
 function capture(
@@ -26,7 +27,8 @@ function capture(
     receivedAtEpochMs: partial.startedAtEpochMs + (partial.durationMs ?? 0) + 18,
     source: {
       app,
-      device
+      device,
+      clientTag: 'OneNews debug'
     },
     ...partial,
     groupId: partial.groupId ?? partial.id,
