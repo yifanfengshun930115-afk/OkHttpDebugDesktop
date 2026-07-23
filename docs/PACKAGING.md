@@ -34,6 +34,7 @@ It builds:
 macOS arm64 DMG on macos-latest
 macOS x64 DMG on macos-latest
 Windows x64 NSIS installer on windows-2022
+Linux x64 AppImage and deb on ubuntu-22.04
 ```
 
 Manual build:
@@ -51,8 +52,8 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-Pushing a `v*` tag builds both platforms and uploads the DMG/EXE to the GitHub
-Release for that tag.
+Pushing a `v*` tag builds all desktop platforms and uploads the DMG/EXE/AppImage/deb
+files to the GitHub Release for that tag.
 
 GitHub Actions downloads official Android SDK Platform-Tools with:
 
@@ -129,3 +130,22 @@ On uninstall, it removes:
 Windows packages should be produced on a Windows release machine or Windows CI
 runner. The macOS Tauri CLI can build macOS bundles here, but this machine does
 not have the Windows NSIS/MSVC packaging toolchain installed.
+
+## Linux
+
+Build on Linux:
+
+```bash
+npm run prepare:adb
+npm run tauri:package:linux
+```
+
+Outputs:
+
+```text
+src-tauri/target/release/bundle/appimage/*.AppImage
+src-tauri/target/release/bundle/deb/*.deb
+```
+
+The GitHub Actions Linux package is built on `ubuntu-22.04` to keep the AppImage
+compatible with a wider set of Linux desktops than a newer runner would.

@@ -19,7 +19,8 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "tauri:package:mac": "node scripts/package-tauri.mjs --platform macos",
-    "tauri:package:windows": "node scripts/package-tauri.mjs --platform windows"
+    "tauri:package:windows": "node scripts/package-tauri.mjs --platform windows",
+    "tauri:package:linux": "node scripts/package-tauri.mjs --platform linux"
   },
   "build": {
     "appId": "com.gzq.okhttpdebug.desktop",

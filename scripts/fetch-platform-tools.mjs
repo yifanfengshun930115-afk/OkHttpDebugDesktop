@@ -31,7 +31,7 @@ const platformConfig = {
     archivePlatform: 'windows',
     adbName: 'adb.exe'
   },
-  linux: {
+  'linux-x64': {
     archivePlatform: 'linux',
     adbName: 'adb'
   }
@@ -59,7 +59,7 @@ function defaultPlatformName() {
   if (process.platform === 'win32') {
     return 'win32';
   }
-  return 'linux';
+  return 'linux-x64';
 }
 
 function extractZip(zipPath, destination) {

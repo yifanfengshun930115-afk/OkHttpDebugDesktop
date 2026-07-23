@@ -34,7 +34,6 @@ manually under:
 resources/platform-tools/darwin-arm64/adb
 resources/platform-tools/darwin-x64/adb
 resources/platform-tools/linux-x64/adb
-resources/platform-tools/linux-arm64/adb
 resources/platform-tools/win32/adb.exe
 ```
 

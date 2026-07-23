@@ -1287,9 +1287,13 @@ fn platform_tools_dir() -> &'static str {
     {
         "win32"
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     {
-        "linux"
+        "linux-arm64"
+    }
+    #[cfg(all(target_os = "linux", not(target_arch = "aarch64")))]
+    {
+        "linux-x64"
     }
 }
 

@@ -73,11 +73,20 @@ async function packageWindows() {
   await run('npx', tauriBuildArgs('nsis'));
 }
 
+async function packageLinux() {
+  if (process.platform !== 'linux') {
+    throw new Error('Linux packages must be built on Linux or a Linux CI runner.');
+  }
+  await run('npx', tauriBuildArgs('appimage,deb'));
+}
+
 try {
   if (platform === 'macos') {
     await packageMacos();
   } else if (platform === 'windows') {
     await packageWindows();
+  } else if (platform === 'linux') {
+    await packageLinux();
   } else {
     throw new Error(`Unsupported package platform: ${platform}`);
   }
