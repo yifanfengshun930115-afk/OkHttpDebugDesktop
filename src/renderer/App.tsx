@@ -1196,13 +1196,14 @@ function App() {
   const usbReverse = state.server.usbReverse;
   const mappedUsbCount = usbReverse.devices.filter((device) => device.mapped).length;
   const authorizedUsbCount = usbReverse.devices.filter((device) => device.state === 'device').length;
-  const usbStatusClass = usbReverse.active
-    ? 'checking'
-    : usbReverse.error
-      ? 'error'
-      : mappedUsbCount > 0
-        ? 'ready'
-        : 'idle';
+  const usbStatusClass = usbReverse.error ? 'error' : mappedUsbCount > 0 ? 'ready' : usbReverse.active ? 'checking' : 'idle';
+  const usbStatusTitle = usbReverse.error
+    ? 'USB 映射需要处理'
+    : mappedUsbCount > 0
+      ? 'USB 映射正常'
+      : usbReverse.active
+        ? '正在等待服务'
+        : '等待 USB 设备';
 
   return (
     <div className={`app ${isResizing ? 'resizing' : ''}`}>
@@ -1328,7 +1329,7 @@ function App() {
           </div>
           <div className={`usb-auto-status usb-${usbStatusClass}`}>
             <span className="dot" />
-            <strong>{usbReverse.active ? '正在检查 USB 映射' : usbReverse.error ? 'USB 映射需要处理' : mappedUsbCount > 0 ? 'USB 映射正常' : '等待 USB 设备'}</strong>
+            <strong>{usbStatusTitle}</strong>
             <small>{`tcp:${usbReverse.devicePort} -> tcp:${usbReverse.hostPort}`}</small>
           </div>
           <p className="hint-text">{usbReverse.message}</p>
@@ -1473,7 +1474,6 @@ function App() {
                       setFollowLive(false);
                       setSelectedGroupId(group.id);
                       setSelectedStageKey('');
-                      setActiveTab('overview');
                     }}
                   >
                     <div className="row-top">

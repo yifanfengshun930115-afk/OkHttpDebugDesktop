@@ -1069,19 +1069,12 @@ fn apply_auto_reverse(app: &AppHandle, shared: &SharedAppState) {
 
     let now = now_ms();
     shared.mutate(|model| {
-        model.server.usb_reverse.active = true;
         model.server.usb_reverse.last_attempt_epoch_ms = Some(now);
-        model.server.usb_reverse.error = None;
-        model.server.usb_reverse.message = Some(if server_running {
-            format!(
-                "正在检查 USB 映射 tcp:{} -> tcp:{}。",
-                device_port, host_port
-            )
-        } else {
-            "等待本地 WebSocket 服务启动。".to_string()
-        });
+        if !server_running {
+            model.server.usb_reverse.active = true;
+            model.server.usb_reverse.message = Some("等待本地 WebSocket 服务启动。".to_string());
+        }
     });
-    emit_state(app, shared);
 
     if !server_running {
         shared.mutate(|model| {
