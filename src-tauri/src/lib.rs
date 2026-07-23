@@ -1,6 +1,8 @@
 use chrono::{Duration as ChronoDuration, Local, NaiveDate};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::{
     collections::HashSet,
     env,
@@ -31,6 +33,22 @@ const ADB_INSTALL_HINT: &str = "未找到 ADB。请通过 Android Studio SDK Man
 
 static NEXT_CONNECTION_ID: AtomicU64 = AtomicU64::new(1);
 static ADB_REVERSE_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+fn adb_command(path: &str) -> Command {
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = Command::new(path);
+        command.creation_flags(CREATE_NO_WINDOW);
+        command
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Command::new(path)
+    }
+}
 
 #[derive(Clone)]
 struct SharedAppState(Arc<Mutex<Model>>);
@@ -1234,7 +1252,7 @@ fn list_adb_devices_inner(shared: &SharedAppState) -> AdbCommandResult {
         };
     };
 
-    match Command::new(path).args(["devices", "-l"]).output() {
+    match adb_command(&path).args(["devices", "-l"]).output() {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -1294,7 +1312,7 @@ fn reverse_debug_port_inner(
 
     let device_target = format!("tcp:{}", device_port);
     let host_target = format!("tcp:{}", host_port);
-    let mut command = Command::new(path);
+    let mut command = adb_command(&path);
     if let Some(serial) = serial {
         command.args(["-s", serial]);
     }
@@ -1423,7 +1441,7 @@ fn remove_reverse_port_inner(
     };
 
     let device_target = format!("tcp:{}", device_port);
-    let mut command = Command::new(path);
+    let mut command = adb_command(&path);
     if let Some(serial) = serial {
         command.args(["-s", serial]);
     }
@@ -1563,7 +1581,7 @@ fn adb_candidates(shared: &SharedAppState) -> Vec<AdbCandidate> {
 }
 
 fn adb_version(path: &str) -> Option<String> {
-    let output = Command::new(path).arg("version").output().ok()?;
+    let output = adb_command(path).arg("version").output().ok()?;
     if !output.status.success() {
         return None;
     }
