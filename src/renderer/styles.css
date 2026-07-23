@@ -1117,6 +1117,73 @@ body.is-resizing {
   font-size: 13px;
 }
 
+.modal-backdrop {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.36);
+  backdrop-filter: blur(8px);
+}
+
+.confirm-dialog {
+  display: grid;
+  width: min(460px, 100%);
+  gap: 18px;
+  padding: 22px;
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 24px 72px rgba(15, 23, 42, 0.28);
+}
+
+.confirm-dialog h2 {
+  margin: 0 0 8px;
+  color: #172033;
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.confirm-dialog p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirm-actions button {
+  min-height: 36px;
+  min-width: 88px;
+  padding: 0 14px;
+  border: 1px solid #d6dee8;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #243044;
+  font-weight: 700;
+}
+
+.confirm-actions button:hover:not(:disabled) {
+  background: #f2f6fa;
+}
+
+.danger-button {
+  border-color: #fecaca;
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.danger-button:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
 .empty-state {
   display: grid;
   min-height: 220px;

@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { DesktopApi } from '../shared/ipc.js';
 import type { AdbCommandResult, DesktopState, ExportResult } from '../shared/protocol.js';
 
@@ -33,7 +34,7 @@ const tauriApi: DesktopApi = {
     invoke<AdbCommandResult>('adb_reverse', { serial, hostPort, devicePort })
 };
 
-function isTauriRuntime() {
+export function isTauriRuntime() {
   return Boolean(window.__TAURI_INTERNALS__);
 }
 
@@ -42,4 +43,53 @@ export function resolveDesktopApi(): DesktopApi | undefined {
     return window.okhttpDebug;
   }
   return isTauriRuntime() ? tauriApi : undefined;
+}
+
+export function onDesktopCloseRequested(callback: () => void): () => void {
+  if (!isTauriRuntime()) {
+    return () => undefined;
+  }
+
+  let disposed = false;
+  let unlisten: (() => void) | undefined;
+  void getCurrentWindow().onCloseRequested((event) => {
+    event.preventDefault();
+    callback();
+  }).then((nextUnlisten) => {
+    if (disposed) {
+      nextUnlisten();
+    } else {
+      unlisten = nextUnlisten;
+    }
+  });
+
+  return () => {
+    disposed = true;
+    unlisten?.();
+  };
+}
+
+export async function minimizeDesktopWindow() {
+  if (isTauriRuntime()) {
+    await getCurrentWindow().minimize();
+  }
+}
+
+export function closeTauriApp(devicePort?: number): Promise<void> {
+  if (!isTauriRuntime()) {
+    return Promise.resolve();
+  }
+  return invoke<void>('close_app', { devicePort });
+}
+
+export function cleanupTauriAdbReverse(devicePort?: number): Promise<AdbCommandResult> {
+  if (!isTauriRuntime()) {
+    return Promise.resolve({
+      ok: true,
+      stdout: '',
+      stderr: '',
+      devices: []
+    });
+  }
+  return invoke<AdbCommandResult>('cleanup_adb_reverse', { devicePort });
 }

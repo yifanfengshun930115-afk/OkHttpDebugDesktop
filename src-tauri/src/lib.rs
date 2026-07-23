@@ -1,3 +1,4 @@
+use chrono::{Duration as ChronoDuration, Local, NaiveDate};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::{
@@ -23,10 +24,12 @@ const DEFAULT_WS_PORT: u16 = 19090;
 const DEFAULT_WS_PORT_RANGE_END: u16 = 19109;
 const MAX_CAPTURE_RECORDS: usize = 1_000;
 const AUTO_REVERSE_INTERVAL_MS: u64 = 15_000;
+const LOG_RETENTION_DAYS: u64 = 7;
 const STATE_CHANGED_EVENT: &str = "state_changed";
 const ADB_INSTALL_HINT: &str = "未找到 ADB。请通过 Android Studio SDK Manager 或 Google Platform-Tools 安装 Android SDK Platform-Tools，并设置 ADB_PATH 或 ANDROID_HOME；也可以把内置 ADB 放到 resources/platform-tools/<platform>/adb。";
 
 static NEXT_CONNECTION_ID: AtomicU64 = AtomicU64::new(1);
+static ADB_REVERSE_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Clone)]
 struct SharedAppState(Arc<Mutex<Model>>);
@@ -35,6 +38,8 @@ struct Model {
     server: ServerState,
     captures: Vec<Value>,
     resource_dir: Option<PathBuf>,
+    log_dir: PathBuf,
+    shutting_down: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -146,9 +151,10 @@ struct AdbCandidate {
 }
 
 impl SharedAppState {
-    fn new(resource_dir: Option<PathBuf>) -> Self {
-        let capture_log_path = env::temp_dir()
-            .join("okhttp-debug-desktop-tauri-captures.ndjson")
+    fn new(resource_dir: Option<PathBuf>, log_dir: PathBuf) -> Self {
+        let _ = fs::create_dir_all(&log_dir);
+        cleanup_old_logs(&log_dir);
+        let capture_log_path = capture_log_path_for_day(&log_dir)
             .to_string_lossy()
             .to_string();
 
@@ -183,6 +189,8 @@ impl SharedAppState {
             },
             captures: Vec::new(),
             resource_dir,
+            log_dir,
+            shutting_down: false,
         })))
     }
 
@@ -273,6 +281,47 @@ fn adb_reverse(
     )
 }
 
+#[tauri::command]
+fn cleanup_adb_reverse(
+    app: AppHandle,
+    state: State<'_, SharedAppState>,
+    device_port: Option<u16>,
+) -> AdbCommandResult {
+    cleanup_adb_reverse_inner(&app, &state, device_port.unwrap_or(DEFAULT_WS_PORT))
+}
+
+#[tauri::command]
+fn close_app(app: AppHandle, state: State<'_, SharedAppState>, device_port: Option<u16>) {
+    let _ = cleanup_adb_reverse_inner(&app, &state, device_port.unwrap_or(DEFAULT_WS_PORT));
+    app.exit(0);
+}
+
+fn cleanup_adb_reverse_inner(
+    app: &AppHandle,
+    state: &SharedAppState,
+    device_port: u16,
+) -> AdbCommandResult {
+    state.mutate(|model| {
+        model.shutting_down = true;
+        model.server.usb_reverse.active = false;
+        model.server.usb_reverse.message = Some("正在移除 USB reverse 映射。".to_string());
+    });
+    emit_state(app, state);
+
+    let result = remove_all_reverse_mappings(state, device_port);
+    if result.ok {
+        state.mutate(|model| {
+            for device in &mut model.server.usb_reverse.devices {
+                device.mapped = false;
+            }
+            model.server.usb_reverse.message = Some("已移除 USB reverse 映射。".to_string());
+            model.server.usb_reverse.error = None;
+        });
+        emit_state(app, state);
+    }
+    result
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -283,7 +332,12 @@ pub fn run() {
         )
         .setup(|app| {
             let resource_dir = app.path().resource_dir().ok();
-            let shared = SharedAppState::new(resource_dir);
+            let log_dir = app.path().app_log_dir().unwrap_or_else(|_| {
+                env::temp_dir()
+                    .join("okhttp-debug-desktop-tauri")
+                    .join("logs")
+            });
+            let shared = SharedAppState::new(resource_dir, log_dir);
             let handle = app.handle().clone();
             app.manage(shared.clone());
             start_capture_server(handle.clone(), shared.clone());
@@ -295,7 +349,9 @@ pub fn run() {
             clear_captures,
             export_json,
             adb_list_devices,
-            adb_reverse
+            adb_reverse,
+            cleanup_adb_reverse,
+            close_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -557,25 +613,82 @@ fn emit_state(app: &AppHandle, shared: &SharedAppState) {
 
 fn append_log(shared: &SharedAppState, entry: Value) {
     let log_path = {
-        let model = shared.0.lock().expect("state lock poisoned");
-        model.server.capture_log_path.clone()
-    };
-    let Some(log_path) = log_path else {
-        return;
+        let mut model = shared.0.lock().expect("state lock poisoned");
+        let path = capture_log_path_for_day(&model.log_dir);
+        model.server.capture_log_path = Some(path.to_string_lossy().to_string());
+        path
     };
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
         let _ = writeln!(file, "{}", entry);
     }
 }
 
+fn capture_log_path_for_day(log_dir: &Path) -> PathBuf {
+    log_dir.join(format!(
+        "captures-{}.ndjson",
+        Local::now().format("%Y-%m-%d")
+    ))
+}
+
+fn cleanup_old_logs(log_dir: &Path) {
+    let Ok(entries) = fs::read_dir(log_dir) else {
+        return;
+    };
+    let cutoff = Local::now().date_naive()
+        - ChronoDuration::days(LOG_RETENTION_DAYS.saturating_sub(1) as i64);
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let Some(log_date) = capture_log_date(file_name) else {
+            continue;
+        };
+        if log_date < cutoff {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+fn capture_log_date(file_name: &str) -> Option<NaiveDate> {
+    let date = file_name
+        .strip_prefix("captures-")?
+        .strip_suffix(".ndjson")?;
+    NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()
+}
+
 fn start_adb_reverse_worker(app: AppHandle, shared: SharedAppState) {
     thread::spawn(move || loop {
+        if is_shutting_down(&shared) {
+            break;
+        }
         apply_auto_reverse(&app, &shared);
-        thread::sleep(Duration::from_millis(AUTO_REVERSE_INTERVAL_MS));
+        sleep_until_next_reverse_attempt(&shared);
     });
 }
 
+fn sleep_until_next_reverse_attempt(shared: &SharedAppState) {
+    let mut remaining_ms = AUTO_REVERSE_INTERVAL_MS;
+    while remaining_ms > 0 {
+        if is_shutting_down(shared) {
+            break;
+        }
+        let interval_ms = remaining_ms.min(250);
+        thread::sleep(Duration::from_millis(interval_ms));
+        remaining_ms -= interval_ms;
+    }
+}
+
+fn is_shutting_down(shared: &SharedAppState) -> bool {
+    let model = shared.0.lock().expect("state lock poisoned");
+    model.shutting_down
+}
+
 fn apply_auto_reverse(app: &AppHandle, shared: &SharedAppState) {
+    if is_shutting_down(shared) {
+        return;
+    }
+
     let (server_running, host_port, device_port) = {
         let model = shared.0.lock().expect("state lock poisoned");
         (
@@ -640,6 +753,10 @@ fn apply_auto_reverse(app: &AppHandle, shared: &SharedAppState) {
     let mut success_count = 0usize;
 
     for device in &devices {
+        if is_shutting_down(shared) {
+            break;
+        }
+
         if device.state != "device" {
             mapped_devices.push(UsbReverseDeviceState {
                 serial: device.serial.clone(),
@@ -802,6 +919,7 @@ fn reverse_debug_port_inner(
     }
     command.args(["reverse", &device_target, &host_target]);
 
+    let _guard = ADB_REVERSE_LOCK.lock().expect("adb reverse lock poisoned");
     match command.output() {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -828,6 +946,142 @@ fn reverse_debug_port_inner(
             adb: Some(adb),
         },
     }
+}
+
+fn remove_all_reverse_mappings(shared: &SharedAppState, device_port: u16) -> AdbCommandResult {
+    let device_result = list_adb_devices_inner(shared);
+    if !device_result.ok {
+        return AdbCommandResult {
+            ok: false,
+            stdout: device_result.stdout,
+            stderr: device_result.stderr.clone(),
+            error: device_result.error,
+            devices: device_result.devices,
+            adb: device_result.adb,
+        };
+    }
+
+    let adb = device_result.adb.clone();
+    let devices = device_result.devices.clone().unwrap_or_default();
+    let authorized = devices
+        .iter()
+        .filter(|device| device.state == "device")
+        .collect::<Vec<_>>();
+
+    if authorized.is_empty() {
+        return AdbCommandResult {
+            ok: true,
+            stdout: "未检测到已授权 USB 设备，跳过 reverse 清理。".to_string(),
+            stderr: String::new(),
+            error: None,
+            devices: Some(devices),
+            adb,
+        };
+    }
+
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    let mut failures = Vec::new();
+    for device in authorized {
+        let result = remove_reverse_port_inner(shared, Some(&device.serial), device_port);
+        if !result.stdout.trim().is_empty() {
+            stdout.push_str(&format!("{}: {}\n", device.serial, result.stdout.trim()));
+        }
+        if !result.stderr.trim().is_empty() {
+            stderr.push_str(&format!("{}: {}\n", device.serial, result.stderr.trim()));
+        }
+        if !result.ok {
+            failures.push(device.serial.clone());
+        }
+    }
+
+    AdbCommandResult {
+        ok: failures.is_empty(),
+        stdout,
+        stderr: stderr.clone(),
+        error: if failures.is_empty() {
+            None
+        } else {
+            Some(format!(
+                "{} 台设备 reverse 清理失败：{}",
+                failures.len(),
+                failures.join(", ")
+            ))
+        },
+        devices: Some(devices),
+        adb,
+    }
+}
+
+fn remove_reverse_port_inner(
+    shared: &SharedAppState,
+    serial: Option<&str>,
+    device_port: u16,
+) -> AdbCommandResult {
+    let adb = detect_adb(shared);
+    if !adb.available {
+        return AdbCommandResult {
+            ok: false,
+            stdout: String::new(),
+            stderr: String::new(),
+            error: Some(ADB_INSTALL_HINT.to_string()),
+            devices: None,
+            adb: Some(adb),
+        };
+    }
+
+    let Some(path) = adb.path.clone() else {
+        return AdbCommandResult {
+            ok: false,
+            stdout: String::new(),
+            stderr: String::new(),
+            error: Some(ADB_INSTALL_HINT.to_string()),
+            devices: None,
+            adb: Some(adb),
+        };
+    };
+
+    let device_target = format!("tcp:{}", device_port);
+    let mut command = Command::new(path);
+    if let Some(serial) = serial {
+        command.args(["-s", serial]);
+    }
+    command.args(["reverse", "--remove", &device_target]);
+
+    let _guard = ADB_REVERSE_LOCK.lock().expect("adb reverse lock poisoned");
+    match command.output() {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            AdbCommandResult {
+                ok: output.status.success() || reverse_remove_error_is_harmless(&stderr),
+                stdout,
+                stderr: stderr.clone(),
+                error: if output.status.success() || reverse_remove_error_is_harmless(&stderr) {
+                    None
+                } else {
+                    Some(stderr)
+                },
+                devices: None,
+                adb: Some(adb),
+            }
+        }
+        Err(error) => AdbCommandResult {
+            ok: false,
+            stdout: String::new(),
+            stderr: String::new(),
+            error: Some(error.to_string()),
+            devices: None,
+            adb: Some(adb),
+        },
+    }
+}
+
+fn reverse_remove_error_is_harmless(stderr: &str) -> bool {
+    let normalized = stderr.to_lowercase();
+    normalized.contains("not found")
+        || normalized.contains("no such")
+        || normalized.contains("cannot remove listener")
 }
 
 fn detect_adb(shared: &SharedAppState) -> AdbInfo {
@@ -978,6 +1232,46 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_else(|_| Duration::from_secs(0))
         .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_capture_log_dates() {
+        assert_eq!(
+            capture_log_date("captures-2026-07-23.ndjson"),
+            NaiveDate::from_ymd_opt(2026, 7, 23)
+        );
+        assert!(capture_log_date("capture-2026-07-23.ndjson").is_none());
+        assert!(capture_log_date("captures-latest.ndjson").is_none());
+    }
+
+    #[test]
+    fn cleanup_old_logs_keeps_latest_seven_calendar_days() {
+        let log_dir = env::temp_dir().join(format!("okhttp-debug-log-cleanup-test-{}", now_ms()));
+        fs::create_dir_all(&log_dir).expect("create test log dir");
+
+        let today = Local::now().date_naive();
+        let stale_date = today - ChronoDuration::days(LOG_RETENTION_DAYS as i64);
+        let kept_date = today - ChronoDuration::days(LOG_RETENTION_DAYS as i64 - 1);
+        let stale_log = log_dir.join(format!("captures-{}.ndjson", stale_date.format("%Y-%m-%d")));
+        let kept_log = log_dir.join(format!("captures-{}.ndjson", kept_date.format("%Y-%m-%d")));
+        let unrelated_log = log_dir.join("desktop.log");
+
+        fs::write(&stale_log, "old").expect("write stale log");
+        fs::write(&kept_log, "kept").expect("write kept log");
+        fs::write(&unrelated_log, "other").expect("write unrelated log");
+
+        cleanup_old_logs(&log_dir);
+
+        assert!(!stale_log.exists());
+        assert!(kept_log.exists());
+        assert!(unrelated_log.exists());
+
+        let _ = fs::remove_dir_all(log_dir);
+    }
 }
 
 fn platform_tools_dir() -> &'static str {

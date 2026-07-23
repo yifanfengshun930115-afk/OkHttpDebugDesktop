@@ -30,7 +30,12 @@ import {
 } from 'lucide-react';
 import type { AdbDevice, CaptureRecord, DesktopState, HeadersRecord } from '../shared/protocol.js';
 import { DEFAULT_WS_PORT, DEFAULT_WS_PORT_RANGE_END } from '../shared/protocol.js';
-import { resolveDesktopApi } from './desktopApi.js';
+import {
+  closeTauriApp,
+  minimizeDesktopWindow,
+  onDesktopCloseRequested,
+  resolveDesktopApi
+} from './desktopApi.js';
 import { sampleCaptures } from './sampleCaptures.js';
 import './styles.css';
 
@@ -874,6 +879,8 @@ function App() {
   const [adbDevices, setAdbDevices] = useState<AdbDevice[]>([]);
   const [adbMessage, setAdbMessage] = useState('');
   const [noticeMessage, setNoticeMessage] = useState('');
+  const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
+  const [closingApp, setClosingApp] = useState(false);
 
   const api = useMemo(() => resolveDesktopApi(), []);
 
@@ -927,6 +934,8 @@ function App() {
       document.body.classList.remove('is-resizing');
     };
   }, [isResizing]);
+
+  useEffect(() => onDesktopCloseRequested(() => setExitConfirmOpen(true)), []);
 
   const captures = state.captures.length > 0 ? state.captures : api ? [] : sampleCaptures;
   const captureGroups = useMemo(() => groupCaptures(captures), [captures]);
@@ -1096,6 +1105,21 @@ function App() {
     }
   }
 
+  async function closeApp() {
+    setClosingApp(true);
+    try {
+      await closeTauriApp(state.server.devicePort);
+    } catch (error) {
+      setClosingApp(false);
+      setNoticeMessage(error instanceof Error ? error.message : '关闭失败。');
+    }
+  }
+
+  async function minimizeApp() {
+    setExitConfirmOpen(false);
+    await minimizeDesktopWindow();
+  }
+
   const live = state.server.running && state.server.error === undefined;
   const serverLabel = state.server.starting ? '启动中' : live ? '监听中' : '离线';
   const usbReverse = state.server.usbReverse;
@@ -1111,6 +1135,27 @@ function App() {
 
   return (
     <div className={`app ${isResizing ? 'resizing' : ''}`}>
+      {exitConfirmOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="exit-confirm-title">
+            <div>
+              <h2 id="exit-confirm-title">关闭 OkHttp Debug Desktop？</h2>
+              <p>关闭前会移除当前 USB 设备的 adb reverse 映射。选择最小化会保留监听和自动映射。</p>
+            </div>
+            <div className="confirm-actions">
+              <button type="button" className="danger-button" disabled={closingApp} onClick={() => void closeApp()}>
+                {closingApp ? '正在关闭...' : '关闭'}
+              </button>
+              <button type="button" disabled={closingApp} onClick={() => void minimizeApp()}>
+                最小化
+              </button>
+              <button type="button" disabled={closingApp} onClick={() => setExitConfirmOpen(false)}>
+                取消
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
       {drawerOpen ? <button type="button" className="drawer-backdrop" aria-label="关闭连接抽屉" onClick={() => setDrawerOpen(false)} /> : null}
       <aside className={`sidebar drawer ${drawerOpen ? 'open' : ''}`}>
         <div className="brand">
