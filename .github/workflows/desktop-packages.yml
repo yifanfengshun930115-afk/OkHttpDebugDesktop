@@ -2,6 +2,16 @@ name: Desktop Packages
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish artifacts to a GitHub Release after packaging.'
+        required: false
+        type: boolean
+        default: false
+      release_tag:
+        description: 'Existing tag to publish when manually dispatching, for example v0.1.0.'
+        required: false
+        type: string
   push:
     tags:
       - 'v*'
@@ -113,7 +123,7 @@ jobs:
     name: Publish GitHub Release
     runs-on: ubuntu-24.04
     needs: package
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
     timeout-minutes: 15
 
     steps:
@@ -126,11 +136,30 @@ jobs:
       - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+          DEFAULT_TAG_NAME: ${{ github.ref_name }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+          IS_MANUAL_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          ls -lah release-assets
-          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" release-assets/* --clobber
+          TAG_NAME="$DEFAULT_TAG_NAME"
+          if [ "$IS_MANUAL_DISPATCH" = "true" ]; then
+            TAG_NAME="$RELEASE_TAG_INPUT"
+          fi
+
+          if [ -z "$TAG_NAME" ]; then
+            echo "Release tag is empty. Provide release_tag for manual publish runs."
+            exit 1
+          fi
+
+          find release-assets -maxdepth 3 -type f -print -exec ls -lh {} \;
+          mapfile -d '' ASSETS < <(find release-assets -type f -print0)
+          if [ "${#ASSETS[@]}" -eq 0 ]; then
+            echo "No release assets were downloaded."
+            exit 1
+          fi
+
+          if gh release view "$TAG_NAME" --repo "$GH_REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" "${ASSETS[@]}" --repo "$GH_REPO" --clobber
           else
-            gh release create "$TAG_NAME" release-assets/* --title "$TAG_NAME" --generate-notes
+            gh release create "$TAG_NAME" "${ASSETS[@]}" --repo "$GH_REPO" --title "$TAG_NAME" --generate-notes --verify-tag
           fi
