@@ -28,6 +28,7 @@ const DEFAULT_WS_PORT_RANGE_END: u16 = 19109;
 const MAX_CAPTURE_RECORDS: usize = 1_000;
 const AUTO_REVERSE_INTERVAL_MS: u64 = 15_000;
 const LOG_RETENTION_DAYS: u64 = 7;
+const CAPTURE_FILE_LOG_ENABLED: bool = cfg!(debug_assertions);
 const STATE_CHANGED_EVENT: &str = "state_changed";
 const ADB_INSTALL_HINT: &str = "未找到 ADB。请通过 Android Studio SDK Manager 或 Google Platform-Tools 安装 Android SDK Platform-Tools，并设置 ADB_PATH 或 ANDROID_HOME；也可以把内置 ADB 放到 resources/platform-tools/<platform>/adb。";
 const RELEASE_REPO_URL: &str = "https://github.com/yifanfengshun930115-afk/OkHttpDebugDesktop";
@@ -249,9 +250,7 @@ impl SharedAppState {
     fn new(resource_dir: Option<PathBuf>, log_dir: PathBuf) -> Self {
         let _ = fs::create_dir_all(&log_dir);
         cleanup_old_logs(&log_dir);
-        let capture_log_path = capture_log_path_for_day(&log_dir)
-            .to_string_lossy()
-            .to_string();
+        let capture_log_path = capture_file_log_path_string(&log_dir);
 
         Self(Arc::new(Mutex::new(Model {
             server: ServerState {
@@ -271,7 +270,7 @@ impl SharedAppState {
                     message: Some("USB 自动映射已就绪。".to_string()),
                     error: None,
                 },
-                capture_log_path: Some(capture_log_path),
+                capture_log_path,
                 port_range: PortRange {
                     start: DEFAULT_WS_PORT,
                     end: DEFAULT_WS_PORT_RANGE_END,
@@ -414,11 +413,7 @@ fn open_log_dir(state: State<'_, SharedAppState>) -> LogActionResult {
             ok: true,
             message: "已打开日志目录。".to_string(),
             log_dir: Some(log_dir.to_string_lossy().to_string()),
-            capture_log_path: Some(
-                capture_log_path_for_day(&log_dir)
-                    .to_string_lossy()
-                    .to_string(),
-            ),
+            capture_log_path: capture_file_log_path_string(&log_dir),
             deleted_count: None,
             error: None,
         },
@@ -457,9 +452,9 @@ fn clear_logs(app: AppHandle, state: State<'_, SharedAppState>) -> LogActionResu
         Err(error) => return log_action_error(&log_dir, format!("日志读取失败：{}", error)),
     }
 
-    let capture_log_path = capture_log_path_for_day(&log_dir);
+    let capture_log_path = capture_file_log_path_string(&log_dir);
     state.mutate(|model| {
-        model.server.capture_log_path = Some(capture_log_path.to_string_lossy().to_string());
+        model.server.capture_log_path = capture_log_path.clone();
     });
     append_log(
         &state,
@@ -472,7 +467,7 @@ fn clear_logs(app: AppHandle, state: State<'_, SharedAppState>) -> LogActionResu
             ok: true,
             message: format!("已清理 {} 个日志项。", deleted_count),
             log_dir: Some(log_dir.to_string_lossy().to_string()),
-            capture_log_path: Some(capture_log_path.to_string_lossy().to_string()),
+            capture_log_path,
             deleted_count: Some(deleted_count),
             error: None,
         }
@@ -485,7 +480,7 @@ fn clear_logs(app: AppHandle, state: State<'_, SharedAppState>) -> LogActionResu
                 failures.len()
             ),
             log_dir: Some(log_dir.to_string_lossy().to_string()),
-            capture_log_path: Some(capture_log_path.to_string_lossy().to_string()),
+            capture_log_path,
             deleted_count: Some(deleted_count),
             error: Some(failures.join("\n")),
         }
@@ -521,8 +516,8 @@ fn report_renderer_error(
         let model = state.0.lock().expect("state lock poisoned");
         model.log_dir.clone()
     };
-    append_log(
-        &state,
+    let _ = append_crash_log(
+        &log_dir,
         json!({
           "type": "renderer_error",
           "message": payload.message,
@@ -536,11 +531,7 @@ fn report_renderer_error(
         ok: true,
         message: "已记录前端异常。".to_string(),
         log_dir: Some(log_dir.to_string_lossy().to_string()),
-        capture_log_path: Some(
-            capture_log_path_for_day(&log_dir)
-                .to_string_lossy()
-                .to_string(),
-        ),
+        capture_log_path: capture_file_log_path_string(&log_dir),
         deleted_count: None,
         error: None,
     }
@@ -1001,11 +992,7 @@ fn log_action_error(log_dir: &Path, message: String) -> LogActionResult {
         ok: false,
         message: message.clone(),
         log_dir: Some(log_dir.to_string_lossy().to_string()),
-        capture_log_path: Some(
-            capture_log_path_for_day(log_dir)
-                .to_string_lossy()
-                .to_string(),
-        ),
+        capture_log_path: capture_file_log_path_string(log_dir),
         deleted_count: None,
         error: Some(message),
     }
@@ -1365,6 +1352,10 @@ fn hex_value(value: u8) -> Option<u8> {
 }
 
 fn append_log(shared: &SharedAppState, entry: Value) {
+    if !CAPTURE_FILE_LOG_ENABLED {
+        return;
+    }
+
     let log_path = {
         let mut model = shared.0.lock().expect("state lock poisoned");
         let path = capture_log_path_for_day(&model.log_dir);
@@ -1380,6 +1371,22 @@ fn append_json_line(path: &Path, entry: Value) -> std::io::Result<()> {
     }
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     writeln!(file, "{}", log_entry_with_timestamp(entry))
+}
+
+fn append_crash_log(log_dir: &Path, entry: Value) -> std::io::Result<()> {
+    append_json_line(&crash_log_path_for_day(log_dir), entry)
+}
+
+fn capture_file_log_path_string(log_dir: &Path) -> Option<String> {
+    capture_file_log_path(log_dir).map(|path| path.to_string_lossy().to_string())
+}
+
+fn capture_file_log_path(log_dir: &Path) -> Option<PathBuf> {
+    if CAPTURE_FILE_LOG_ENABLED {
+        Some(capture_log_path_for_day(log_dir))
+    } else {
+        None
+    }
 }
 
 fn log_entry_with_timestamp(entry: Value) -> Value {
@@ -1419,8 +1426,8 @@ fn install_panic_hook(log_dir: PathBuf) {
                 location.column()
             )
         });
-        let _ = append_json_line(
-            &crash_log_path_for_day(&log_dir),
+        let _ = append_crash_log(
+            &log_dir,
             json!({
               "type": "rust_panic",
               "message": message,
@@ -2130,6 +2137,38 @@ mod tests {
         assert!(!stale_crash.exists());
         assert!(kept_crash.exists());
         assert!(unrelated_log.exists());
+
+        let _ = fs::remove_dir_all(log_dir);
+    }
+
+    #[test]
+    fn capture_file_log_path_follows_build_profile() {
+        let log_dir = env::temp_dir().join(format!("okhttp-debug-log-path-test-{}", now_ms()));
+        let path = capture_file_log_path(&log_dir);
+
+        if CAPTURE_FILE_LOG_ENABLED {
+            assert_eq!(
+                path.as_deref(),
+                Some(capture_log_path_for_day(&log_dir).as_path())
+            );
+            assert!(capture_file_log_path_string(&log_dir)
+                .as_deref()
+                .is_some_and(|value| value.contains("captures-")));
+        } else {
+            assert!(path.is_none());
+            assert!(capture_file_log_path_string(&log_dir).is_none());
+        }
+    }
+
+    #[test]
+    fn append_log_writes_capture_file_only_when_enabled() {
+        let log_dir = env::temp_dir().join(format!("okhttp-debug-capture-write-test-{}", now_ms()));
+        let shared = SharedAppState::new(None, log_dir.clone());
+        let capture_log_path = capture_log_path_for_day(&log_dir);
+
+        append_log(&shared, json!({ "type": "capture", "id": "test" }));
+
+        assert_eq!(capture_log_path.exists(), CAPTURE_FILE_LOG_ENABLED);
 
         let _ = fs::remove_dir_all(log_dir);
     }
