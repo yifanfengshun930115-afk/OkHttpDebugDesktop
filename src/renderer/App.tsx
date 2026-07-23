@@ -781,37 +781,26 @@ function CurlBlock({ capture, onNotify }: { capture: CaptureRecord; onNotify: (m
 function StageCard({ capture }: { capture: CaptureRecord }) {
   const requestJson = parseJsonString(capture.request.body);
   const responseJson = parseJsonString(capture.response?.body);
+  const requestSummary = requestJson === undefined ? measuredBodySize(capture.request.body, capture.request.contentLength) : summarizeJson(requestJson);
+  const responseSummary = responseJson === undefined ? measuredBodySize(capture.response?.body, capture.response?.contentLength) : summarizeJson(responseJson);
   return (
     <article className={`stage-card stage-card-${capture.stage}`}>
-      <div className="stage-card-header">
+      <div className="stage-card-top">
         <span className={`stage-pill stage-${capture.stage}`}>{captureStageLabel(capture)}</span>
         <StatusPill capture={capture} />
         <strong>{formatDuration(capture.durationMs)}</strong>
-      </div>
-      <div className="stage-facts">
-        <div>
-          <span>请求体</span>
-          <strong>{requestJson === undefined ? measuredBodySize(capture.request.body, capture.request.contentLength) : summarizeJson(requestJson)}</strong>
-        </div>
-        <div>
-          <span>响应体</span>
-          <strong>
-            {responseJson === undefined ? measuredBodySize(capture.response?.body, capture.response?.contentLength) : summarizeJson(responseJson)}
-          </strong>
-        </div>
-        <div>
-          <span>内容类型</span>
-          <strong>{capture.response?.contentType ?? capture.request.contentType ?? '-'}</strong>
-        </div>
+        <span>请求 {requestSummary}</span>
+        <span>响应 {responseSummary}</span>
+        <span>{capture.response?.contentType ?? capture.request.contentType ?? '-'}</span>
       </div>
       <div className="preview-pair">
         <div>
           <span>请求预览</span>
-          <code>{bodyText(capture.request.body).slice(0, 260)}</code>
+          <code>{bodyText(capture.request.body)}</code>
         </div>
         <div>
           <span>响应预览</span>
-          <code>{bodyText(capture.response?.body).slice(0, 260)}</code>
+          <code>{bodyText(capture.response?.body)}</code>
         </div>
       </div>
     </article>
@@ -826,35 +815,32 @@ function StageCompare({ group }: { group: CaptureGroup }) {
       label: '请求转换',
       value:
         plain?.request.body && wire?.request.body && plain.request.body !== wire.request.body
-          ? '明文阶段和传输阶段的请求体不同。'
-          : '请求体在两个阶段一致。'
+          ? '不同'
+          : '一致'
     },
     {
       label: '响应转换',
       value:
         plain?.response?.body && wire?.response?.body && plain.response.body !== wire.response.body
-          ? '传输阶段和明文阶段的响应体不同。'
-          : '响应体在两个阶段一致。'
+          ? '不同'
+          : '一致'
     },
     {
-      label: '关联分组',
-      value: `${group.records.length} 条阶段记录共享分组 ${group.id}。`
+      label: '阶段记录',
+      value: `${group.records.length} 条`
     }
   ];
 
   return (
     <div className="compare-layout">
-      <section className="detail-section insight-panel">
-        <h3>阶段分析</h3>
-        <div className="insight-grid">
-          {insights.map((item) => (
-            <div key={item.label}>
-              <span>{item.label}</span>
-              <strong>{item.value}</strong>
-            </div>
-          ))}
-        </div>
-      </section>
+      <div className="compare-summary" aria-label="阶段分析">
+        {insights.map((item) => (
+          <span key={item.label}>
+            {item.label}
+            <strong>{item.value}</strong>
+          </span>
+        ))}
+      </div>
       <div className="stage-card-grid">
         {plain ? <StageCard capture={plain} /> : <div className="missing-stage">缺少明文阶段。</div>}
         {wire ? <StageCard capture={wire} /> : <div className="missing-stage">缺少传输阶段。</div>}
@@ -936,6 +922,14 @@ function App() {
   }, [isResizing]);
 
   useEffect(() => onDesktopCloseRequested(() => setExitConfirmOpen(true)), []);
+
+  useEffect(() => {
+    if (!noticeMessage) {
+      return undefined;
+    }
+    const timeout = window.setTimeout(() => setNoticeMessage(''), 1800);
+    return () => window.clearTimeout(timeout);
+  }, [noticeMessage]);
 
   const captures = state.captures.length > 0 ? state.captures : api ? [] : sampleCaptures;
   const captureGroups = useMemo(() => groupCaptures(captures), [captures]);
@@ -1135,6 +1129,11 @@ function App() {
 
   return (
     <div className={`app ${isResizing ? 'resizing' : ''}`}>
+      {noticeMessage ? (
+        <div className="notice-toast" role="status" aria-live="polite">
+          {noticeMessage}
+        </div>
+      ) : null}
       {exitConfirmOpen ? (
         <div className="modal-backdrop" role="presentation">
           <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="exit-confirm-title">
@@ -1353,8 +1352,6 @@ function App() {
           </div>
         </div>
 
-        {noticeMessage ? <div className="notice">{noticeMessage}</div> : null}
-
         <div className="content-grid" style={{ gridTemplateColumns: `${requestListWidth}px 8px minmax(0, 1fr)` }}>
           <section className="request-list">
             {filteredCaptures.length === 0 ? (
@@ -1421,13 +1418,9 @@ function App() {
                       <h2>{getPath(selected.request.url)}</h2>
                       <StatusPill capture={selected} />
                       <span className={`stage-pill stage-${captureStageKey(selected)}`}>{captureStageLabel(selected)}</span>
+                      {selected.error ? <AlertTriangle className="warning-icon" size={18} /> : null}
                     </div>
-                    <p>{selected.request.url}</p>
-                  </div>
-                  <div className="header-actions">
-                    <CopyButton text={selected.request.url} label="已复制 URL" onNotify={setNoticeMessage} />
-                    <CopyButton text={selected.groupId} label="已复制分组 ID" onNotify={setNoticeMessage} />
-                    {selected.error ? <AlertTriangle className="warning-icon" size={22} /> : null}
+                    <p title={selected.request.url}>{selected.request.url}</p>
                   </div>
                 </div>
 
