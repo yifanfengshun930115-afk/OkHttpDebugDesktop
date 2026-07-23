@@ -101,8 +101,7 @@ export class CaptureServer {
         socket,
         connectedAtEpochMs: now,
         lastSeenAtEpochMs: now,
-        remoteAddress: request.socket.remoteAddress,
-        tokenPresent: false
+        remoteAddress: request.socket.remoteAddress
       };
 
       this.connections.set(id, connection);
@@ -186,18 +185,16 @@ export class CaptureServer {
       connection.lastSeenAtEpochMs = Date.now();
 
       if (message.type === 'hello') {
-        connection.sessionId = message.sessionId;
         connection.app = message.app;
         connection.device = message.device;
         connection.protocolVersion = message.protocolVersion;
-        connection.tokenPresent = Boolean(message.token);
+        connection.clientTag = message.clientTag;
         this.captureLogWriter?.log({
           type: 'hello',
           connection: this.toConnectionInfo(connection),
           app: message.app,
           device: message.device,
-          sessionId: message.sessionId,
-          tokenPresent: connection.tokenPresent
+          clientTag: message.clientTag
         });
 
         const ack: HelloAckMessage = {
@@ -218,7 +215,8 @@ export class CaptureServer {
           receivedAtEpochMs: Date.now(),
           source: {
             app: connection.app,
-            device: connection.device
+            device: connection.device,
+            clientTag: connection.clientTag
           }
         };
 

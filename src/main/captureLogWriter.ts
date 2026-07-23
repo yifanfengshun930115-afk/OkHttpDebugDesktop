@@ -13,8 +13,7 @@ export type CaptureLogEntry =
       connection: ConnectionInfo;
       app: AndroidAppInfo;
       device: AndroidDeviceInfo;
-      sessionId: string;
-      tokenPresent: boolean;
+      clientTag?: string;
     }
   | {
       type: 'capture';

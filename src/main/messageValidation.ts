@@ -58,10 +58,9 @@ export function parseClientMessage(raw: string): HelloMessage | CaptureMessage |
 
     if (
       typeof parsed.app.packageName !== 'string' ||
-      typeof parsed.app.versionName !== 'string' ||
-      typeof parsed.sessionId !== 'string'
+      typeof parsed.app.versionName !== 'string'
     ) {
-      throw new Error('hello requires app.packageName, app.versionName, and sessionId.');
+      throw new Error('hello requires app.packageName and app.versionName.');
     }
 
     return parsed as unknown as HelloMessage;
@@ -74,7 +73,6 @@ export function parseClientMessage(raw: string): HelloMessage | CaptureMessage |
 
     if (
       typeof parsed.id !== 'string' ||
-      typeof parsed.sessionId !== 'string' ||
       typeof parsed.startedAtEpochMs !== 'number' ||
       typeof parsed.groupId !== 'string' ||
       !isCaptureStage(parsed.stage) ||
@@ -82,7 +80,7 @@ export function parseClientMessage(raw: string): HelloMessage | CaptureMessage |
       typeof parsed.request.url !== 'string' ||
       !isHeaders(parsed.request.headers)
     ) {
-      throw new Error('capture requires id, sessionId, startedAtEpochMs, groupId, stage, and request fields.');
+      throw new Error('capture requires id, startedAtEpochMs, groupId, stage, and request fields.');
     }
 
     if (parsed.response !== undefined) {

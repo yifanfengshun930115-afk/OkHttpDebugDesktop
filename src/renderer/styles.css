@@ -694,7 +694,7 @@ body.is-resizing {
   color: #1d4ed8;
 }
 
-.request-row .source-chip-client {
+.request-row .source-chip-app {
   border-color: #a7f3d0;
   background: #ecfdf5;
   color: #047857;

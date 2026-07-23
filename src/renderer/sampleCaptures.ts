@@ -17,13 +17,12 @@ const device = {
 };
 
 function capture(
-  partial: Omit<CaptureRecord, 'type' | 'protocolVersion' | 'sessionId' | 'receivedAtEpochMs' | 'source' | 'groupId' | 'stage'> &
+  partial: Omit<CaptureRecord, 'type' | 'protocolVersion' | 'receivedAtEpochMs' | 'source' | 'groupId' | 'stage'> &
     Partial<Pick<CaptureRecord, 'groupId' | 'stage'>>
 ): CaptureRecord {
   return {
     type: 'capture',
     protocolVersion: 1,
-    sessionId: 'sample-onenews-session',
     receivedAtEpochMs: partial.startedAtEpochMs + (partial.durationMs ?? 0) + 18,
     source: {
       app,
@@ -85,11 +84,6 @@ export const sampleCaptures: CaptureRecord[] = [
       requestBodyMs: 2,
       serverMs: 85,
       responseBodyMs: 20
-    },
-    tags: {
-      retrofit: 'ApiServices.api',
-      field: 'getNewsList',
-      baseUrl: 'BuildConfig.NEWS_API'
     }
   }),
   capture({
@@ -135,10 +129,6 @@ export const sampleCaptures: CaptureRecord[] = [
       requestBodyMs: 1,
       serverMs: 91,
       responseBodyMs: 22
-    },
-    tags: {
-      retrofit: 'ApiServices.api',
-      field: 'getNewsDetail'
     }
   }),
   capture({
@@ -180,10 +170,6 @@ export const sampleCaptures: CaptureRecord[] = [
       requestBodyMs: 1,
       serverMs: 72,
       responseBodyMs: 21
-    },
-    tags: {
-      retrofit: 'ApiServices.api',
-      field: 'hotSearchKeywords'
     }
   }),
   capture({
@@ -216,10 +202,6 @@ export const sampleCaptures: CaptureRecord[] = [
       connectMs: 31,
       serverMs: 456,
       responseBodyMs: 25
-    },
-    tags: {
-      retrofit: 'ApiServices.api',
-      field: 'allTopCategory'
     }
   }),
   capture({
@@ -265,11 +247,6 @@ export const sampleCaptures: CaptureRecord[] = [
       tlsMs: 39,
       serverMs: 112,
       responseBodyMs: 27
-    },
-    tags: {
-      retrofit: 'RetrofitHelper.provideWeatherHttpClient',
-      field: 'realtimeWeather',
-      baseUrl: 'BuildConfig.WEATHER_API'
     }
   }),
   capture({
@@ -297,10 +274,6 @@ export const sampleCaptures: CaptureRecord[] = [
       connectMs: 23,
       tlsMs: 37,
       serverMs: 9944
-    },
-    tags: {
-      retrofit: 'RetrofitHelper.provideWeatherHttpClient',
-      field: 'dailyWeatherV2'
     }
   }),
   capture({
@@ -342,11 +315,6 @@ export const sampleCaptures: CaptureRecord[] = [
       tlsMs: 46,
       serverMs: 130,
       responseBodyMs: 27
-    },
-    tags: {
-      retrofit: 'RetrofitHelper.provideAqiHttpClient',
-      endpoint: 'Apis.AQI_URI feed/{location}',
-      token: 'demo-token'
     }
   }),
   capture({
@@ -391,10 +359,6 @@ export const sampleCaptures: CaptureRecord[] = [
       requestBodyMs: 2,
       serverMs: 89,
       responseBodyMs: 24
-    },
-    tags: {
-      retrofit: 'VipApi.getGoogleOrderInfo',
-      baseUrl: 'BuildConfig.BILLING_API'
     }
   })
 ];

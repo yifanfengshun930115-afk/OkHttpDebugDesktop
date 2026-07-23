@@ -17,7 +17,7 @@ npm install
 npm run tauri:dev
 ```
 
-The desktop app listens on `ws://127.0.0.1:19090/session?token=<token>`. For USB debugging, connect a device and run the built-in Reverse button, or run:
+The desktop app listens on `ws://127.0.0.1:19090/session`. For USB debugging, connect a device and run the built-in Reverse button, or run:
 
 ```bash
 adb reverse tcp:19090 tcp:19090

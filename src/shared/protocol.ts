@@ -21,7 +21,6 @@ export interface AndroidDeviceInfo {
   model?: string;
   sdkInt?: number;
   deviceTag?: string;
-  androidId?: string;
 }
 
 export interface HelloMessage {
@@ -29,10 +28,7 @@ export interface HelloMessage {
   protocolVersion: typeof PROTOCOL_VERSION;
   app: AndroidAppInfo;
   device: AndroidDeviceInfo;
-  sessionId: string;
-  token?: string;
   clientTag?: string;
-  staticTag?: string;
 }
 
 export interface HttpPayload {
@@ -67,7 +63,6 @@ export interface CaptureMessage {
   type: 'capture';
   protocolVersion: typeof PROTOCOL_VERSION;
   id: string;
-  sessionId: string;
   startedAtEpochMs: number;
   groupId: string;
   stage: CaptureStage;
@@ -76,7 +71,6 @@ export interface CaptureMessage {
   response?: HttpResponsePayload;
   error?: CaptureErrorPayload;
   timing?: JsonObject;
-  tags?: JsonObject;
 }
 
 export interface PingMessage {
@@ -117,11 +111,9 @@ export interface ConnectionInfo {
   connectedAtEpochMs: number;
   lastSeenAtEpochMs: number;
   remoteAddress?: string;
-  sessionId?: string;
   app?: AndroidAppInfo;
   device?: AndroidDeviceInfo;
   protocolVersion?: number;
-  tokenPresent: boolean;
   clientTag?: string;
 }
 

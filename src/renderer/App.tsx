@@ -70,7 +70,7 @@ interface SourceFacet {
 }
 
 interface SourceChip extends SourceFacet {
-  kind: 'device' | 'client';
+  kind: 'device' | 'app';
 }
 
 interface BodyInspectorProps {
@@ -237,26 +237,14 @@ function shortConnectionId(connectionId?: string) {
 }
 
 function captureClientTag(capture: CaptureRecord) {
-  const sourceTag = cleanFacetText(capture.source?.clientTag);
-  if (sourceTag) {
-    return sourceTag;
-  }
-
-  const tags = capture.tags ?? {};
-  return (
-    cleanFacetText(tags.clientTag) ??
-    cleanFacetText(tags.staticTag) ??
-    cleanFacetText(tags.source) ??
-    cleanFacetText(tags.flavor) ??
-    cleanFacetText(tags.channel)
-  );
+  return cleanFacetText(capture.source?.clientTag);
 }
 
 function deviceFacet(capture: CaptureRecord): SourceChip {
   const device = capture.source?.device;
   const model = [device?.manufacturer, device?.model].map(cleanFacetText).filter(Boolean).join(' ');
   const sdk = device?.sdkInt !== undefined ? `API ${device.sdkInt}` : undefined;
-  const stableTag = cleanFacetText(device?.deviceTag) ?? cleanFacetText(device?.androidId);
+  const stableTag = cleanFacetText(device?.deviceTag);
   const connectionTag = shortConnectionId(capture.connectionId);
   const fallbackTag = stableTag ?? connectionTag;
   const baseLabel = model || '未知设备';
@@ -271,19 +259,18 @@ function deviceFacet(capture: CaptureRecord): SourceChip {
   };
 }
 
-function clientFacet(capture: CaptureRecord): SourceChip {
+function appFacet(capture: CaptureRecord): SourceChip {
   const appPackage = cleanFacetText(capture.source?.app?.packageName);
   const version = cleanFacetText(capture.source?.app?.versionName);
   const tag = captureClientTag(capture);
-  const sessionTag = shortConnectionId(capture.sessionId);
-  const label = compactLabel(appPackage && tag ? `${appPackage} · ${tag}` : tag ?? appPackage ?? sessionTag ?? '未知客户端');
-  const key = `client:${appPackage ?? 'unknown'}|${tag ?? capture.sessionId ?? capture.connectionId ?? 'unknown'}`;
+  const label = compactLabel(appPackage && tag ? `${appPackage} · ${tag}` : appPackage ?? tag ?? '未知应用');
+  const key = `app:${appPackage ?? 'unknown'}|${tag ?? ''}`;
 
   return {
-    kind: 'client',
+    kind: 'app',
     key,
     label,
-    title: [appPackage, version, tag, sessionTag ? `会话 ${sessionTag}` : undefined].filter(Boolean).join(' · ')
+    title: [appPackage, version, tag ? `别名 ${tag}` : undefined].filter(Boolean).join(' · ')
   };
 }
 
@@ -965,7 +952,7 @@ function App() {
   const [stageFilter, setStageFilter] = useState<StageFilter>('all');
   const [methodFilter, setMethodFilter] = useState('all');
   const [deviceFilter, setDeviceFilter] = useState('all');
-  const [clientFilter, setClientFilter] = useState('all');
+  const [appFilter, setAppFilter] = useState('all');
   const [followLive, setFollowLive] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [requestListWidth, setRequestListWidth] = useState(440);
@@ -1087,7 +1074,7 @@ function App() {
     [captureGroups]
   );
   const deviceFilters = useMemo(() => buildFacetOptions(captureGroups, deviceFacet), [captureGroups]);
-  const clientFilters = useMemo(() => buildFacetOptions(captureGroups, clientFacet), [captureGroups]);
+  const appFilters = useMemo(() => buildFacetOptions(captureGroups, appFacet), [captureGroups]);
 
   useEffect(() => {
     if (deviceFilter !== 'all' && !deviceFilters.some((filter) => filter.key === deviceFilter)) {
@@ -1096,10 +1083,10 @@ function App() {
   }, [deviceFilter, deviceFilters]);
 
   useEffect(() => {
-    if (clientFilter !== 'all' && !clientFilters.some((filter) => filter.key === clientFilter)) {
-      setClientFilter('all');
+    if (appFilter !== 'all' && !appFilters.some((filter) => filter.key === appFilter)) {
+      setAppFilter('all');
     }
-  }, [clientFilter, clientFilters]);
+  }, [appFilter, appFilters]);
 
   const stats = useMemo(() => {
     const primaries = captureGroups.map((group) => group.primary);
@@ -1143,7 +1130,7 @@ function App() {
         return false;
       }
 
-      if (!groupMatchesFacet(group, clientFilter, clientFacet)) {
+      if (!groupMatchesFacet(group, appFilter, appFacet)) {
         return false;
       }
 
@@ -1154,7 +1141,7 @@ function App() {
       const stageLabels = group.records.map(captureStageLabel).join(' ');
       const sourceLabels = [
         ...uniqueFacetsForGroup(group, deviceFacet),
-        ...uniqueFacetsForGroup(group, clientFacet)
+        ...uniqueFacetsForGroup(group, appFacet)
       ].flatMap((facet) => [facet.label, facet.title]);
       const haystack = [
         group.id,
@@ -1172,8 +1159,7 @@ function App() {
           capture.source?.device?.manufacturer,
           capture.source?.device?.model,
           capture.source?.device?.deviceTag,
-          capture.source?.clientTag,
-          JSON.stringify(capture.tags ?? {})
+          capture.source?.clientTag
         ])
       ]
         .filter(Boolean)
@@ -1182,7 +1168,7 @@ function App() {
 
       return haystack.includes(normalized);
     });
-  }, [captureGroups, clientFilter, deviceFilter, methodFilter, query, stageFilter, statusFilter]);
+  }, [appFilter, captureGroups, deviceFilter, methodFilter, query, stageFilter, statusFilter]);
 
   const selectedGroup =
     filteredCaptures.find((group) => group.id === selectedGroupId) ??
@@ -1528,7 +1514,7 @@ function App() {
                   <strong>{connection.app?.packageName ?? connection.id}</strong>
                   <span>{connection.device ? `${connection.device.manufacturer ?? ''} ${connection.device.model ?? ''}` : '等待握手'}</span>
                   <small>
-                    {[connection.remoteAddress ?? '本机', connection.clientTag ?? (connection.tokenPresent ? 'token 已隐藏' : '无标签')].join(' · ')}
+                    {[connection.remoteAddress ?? '本机', connection.clientTag ?? '无别名'].join(' · ')}
                   </small>
                 </div>
               ))}
@@ -1545,7 +1531,7 @@ function App() {
           </button>
           <div className="search-box">
             <Search size={17} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 URL、正文、标签、错误" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 URL、正文、来源、错误" />
           </div>
           <div className="segmented" aria-label="状态筛选">
             {(['all', 'success', 'error', 'failed'] as StatusFilter[]).map((filter) => (
@@ -1605,10 +1591,10 @@ function App() {
             </select>
           </label>
           <label className="select-filter source-filter">
-            客户端
-            <select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}>
-              <option value="all">全部客户端</option>
-              {clientFilters.map((filter) => (
+            应用
+            <select value={appFilter} onChange={(event) => setAppFilter(event.target.value)}>
+              <option value="all">全部应用</option>
+              {appFilters.map((filter) => (
                 <option key={filter.key} value={filter.key}>
                   {filter.label}
                 </option>
@@ -1632,7 +1618,7 @@ function App() {
             ) : (
               filteredCaptures.map((group) => {
                 const capture = group.primary;
-                const sourceChips = [deviceFacet(capture), clientFacet(capture)];
+                const sourceChips = [deviceFacet(capture), appFacet(capture)];
                 return (
                   <button
                     key={group.id}
@@ -1737,13 +1723,12 @@ function App() {
                         <div><span>响应大小</span><strong>{measuredBodySize(selected.response?.body, selected.response?.contentLength)}</strong></div>
                         <div><span>应用</span><strong>{selected.source?.app?.packageName ?? '-'}</strong></div>
                         <div><span>设备</span><strong>{deviceFacet(selected).label}</strong></div>
-                        <div><span>客户端</span><strong>{clientFacet(selected).label}</strong></div>
+                        <div><span>应用标签</span><strong>{appFacet(selected).label}</strong></div>
                         <div><span>阶段</span><strong>{captureStageLabel(selected)}</strong></div>
                         <div><span>分组</span><strong>{selected.groupId}</strong></div>
                       </div>
                       <QueryParams url={selected.request.url} onNotify={setNoticeMessage} />
                       <CurlBlock capture={selected} onNotify={setNoticeMessage} />
-                      <StructuredInspector title="标签" value={selected.tags ?? {}} onNotify={setNoticeMessage} />
                     </>
                   ) : null}
 
