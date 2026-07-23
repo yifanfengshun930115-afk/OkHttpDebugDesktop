@@ -63,6 +63,11 @@ interface BodyInspectorProps {
   onNotify: (message: string) => void;
 }
 
+interface ParsedBody {
+  value: unknown;
+  label: string;
+}
+
 interface StructuredInspectorProps {
   title?: string;
   value: unknown;
@@ -201,8 +206,8 @@ function bodyText(value?: string) {
   return value?.trim() ? value : '(empty)';
 }
 
-function parseJsonString(value?: string) {
-  const trimmed = value?.trim();
+function parseJsonContainer(value: string) {
+  const trimmed = value.trim();
   if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('['))) {
     return undefined;
   }
@@ -212,6 +217,115 @@ function parseJsonString(value?: string) {
   } catch {
     return undefined;
   }
+}
+
+function decodeUrlEncodedText(value: string) {
+  try {
+    return decodeURIComponent(value.replace(/\+/g, ' '));
+  } catch {
+    return undefined;
+  }
+}
+
+function looksLikeFormBody(value: string, contentType?: string) {
+  if (contentType?.toLowerCase().includes('application/x-www-form-urlencoded')) {
+    return true;
+  }
+  return /^[^=&\s]+=[\s\S]*$/.test(value);
+}
+
+function parseFormFieldValue(value: string) {
+  const json = parseJsonContainer(value);
+  if (json !== undefined) {
+    return json;
+  }
+
+  if (!/%[0-9a-f]{2}|\+/i.test(value)) {
+    return value;
+  }
+
+  const decoded = decodeUrlEncodedText(value);
+  if (decoded === undefined || decoded === value) {
+    return value;
+  }
+
+  const decodedJson = parseJsonContainer(decoded);
+  return decodedJson === undefined ? decoded : decodedJson;
+}
+
+function appendFormValue(target: Record<string, unknown>, name: string, value: unknown) {
+  const current = target[name];
+  if (current === undefined) {
+    target[name] = value;
+  } else if (Array.isArray(current)) {
+    current.push(value);
+  } else {
+    target[name] = [current, value];
+  }
+}
+
+function parseFormBody(value: string): ParsedBody | undefined {
+  const params = new URLSearchParams(value);
+  const entries = Array.from(params.entries());
+  if (entries.length === 0 || entries.every(([name]) => !name)) {
+    return undefined;
+  }
+
+  const parsed: Record<string, unknown> = {};
+  for (const [name, fieldValue] of entries) {
+    appendFormValue(parsed, name, parseFormFieldValue(fieldValue));
+  }
+  return { value: parsed, label: '表单已解码' };
+}
+
+function parseInspectableBody(value?: string, contentType?: string): ParsedBody | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const json = parseJsonContainer(trimmed);
+  if (json !== undefined) {
+    return { value: json, label: 'JSON 已解析' };
+  }
+
+  if (looksLikeFormBody(trimmed, contentType)) {
+    const form = parseFormBody(trimmed);
+    if (form !== undefined) {
+      return form;
+    }
+  }
+
+  if (!/%[0-9a-f]{2}|\+/i.test(trimmed)) {
+    return undefined;
+  }
+
+  const decoded = decodeUrlEncodedText(trimmed);
+  if (decoded === undefined || decoded === trimmed) {
+    return undefined;
+  }
+
+  const decodedJson = parseJsonContainer(decoded);
+  if (decodedJson !== undefined) {
+    return { value: decodedJson, label: 'URL 编码 JSON 已解码' };
+  }
+
+  if (looksLikeFormBody(decoded, contentType)) {
+    const decodedForm = parseFormBody(decoded);
+    if (decodedForm !== undefined) {
+      return decodedForm;
+    }
+  }
+
+  return { value: decoded, label: 'URL 编码文本已解码' };
+}
+
+function parseJsonString(value?: string) {
+  return parseInspectableBody(value)?.value;
+}
+
+function printableParsedBody(parsed: ParsedBody) {
+  return typeof parsed.value === 'string' ? parsed.value : JSON.stringify(parsed.value, null, 2);
 }
 
 function summarizeJson(value: unknown) {
@@ -536,13 +650,14 @@ function StructuredInspector({ title, value, onNotify }: StructuredInspectorProp
 }
 
 function BodyInspector({ title, body, contentType, contentLength, truncated, onNotify }: BodyInspectorProps) {
-  const parsedJson = useMemo(() => parseJsonString(body), [body]);
-  const [mode, setMode] = useState<BodyMode>(parsedJson === undefined ? 'raw' : 'pretty');
+  const parsedBody = useMemo(() => parseInspectableBody(body, contentType), [body, contentType]);
+  const [mode, setMode] = useState<BodyMode>(parsedBody === undefined ? 'raw' : 'pretty');
   const rawText = bodyText(body);
+  const copyTextValue = mode === 'pretty' && parsedBody !== undefined ? printableParsedBody(parsedBody) : rawText;
 
   useEffect(() => {
-    setMode(parsedJson === undefined ? 'raw' : 'pretty');
-  }, [body, parsedJson]);
+    setMode(parsedBody === undefined ? 'raw' : 'pretty');
+  }, [body, parsedBody]);
 
   return (
     <section className="detail-section body-inspector">
@@ -555,12 +670,12 @@ function BodyInspector({ title, body, contentType, contentLength, truncated, onN
           <div className="body-meta">
             <span>{contentType ?? '未知内容类型'}</span>
             <span>{measuredBodySize(body, contentLength)}</span>
-            <span>{parsedJson === undefined ? '原始文本' : 'JSON 已解析'}</span>
+            <span>{parsedBody === undefined ? '原始文本' : parsedBody.label}</span>
           </div>
         </div>
         <div className="section-actions">
           <div className="mini-segmented">
-            <button type="button" className={mode === 'pretty' ? 'active' : ''} disabled={parsedJson === undefined} onClick={() => setMode('pretty')}>
+            <button type="button" className={mode === 'pretty' ? 'active' : ''} disabled={parsedBody === undefined} onClick={() => setMode('pretty')}>
               <FileJson size={14} />
               美化
             </button>
@@ -569,10 +684,10 @@ function BodyInspector({ title, body, contentType, contentLength, truncated, onN
               原文
             </button>
           </div>
-          <CopyButton text={rawText} label={`已复制${title}`} onNotify={onNotify} />
+          <CopyButton text={copyTextValue} label={`已复制${title}`} onNotify={onNotify} />
         </div>
       </div>
-      {mode === 'pretty' && parsedJson !== undefined ? <JsonTree value={parsedJson} /> : <CodeBlock text={rawText} />}
+      {mode === 'pretty' && parsedBody !== undefined ? <JsonTree value={parsedBody.value} /> : <CodeBlock text={rawText} />}
     </section>
   );
 }
