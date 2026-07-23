@@ -1,92 +1,37 @@
 {
   "name": "okhttp-debug-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Tauri desktop console for Android OkHttp WebSocket debug captures.",
   "private": true,
   "type": "module",
-  "main": "dist-electron/main/main.js",
   "scripts": {
     "dev:renderer": "vite --host 127.0.0.1",
-    "dev": "concurrently \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "dev": "tauri dev",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "build:renderer": "tsc -p tsconfig.json --noEmit && vite build",
     "build:renderer:if-stale": "node scripts/build-renderer-if-stale.mjs",
-    "build": "npm run typecheck && vite build && tsc -p tsconfig.electron.json",
+    "build": "npm run build:renderer",
     "prepare:adb": "node scripts/prepare-adb-resource.mjs",
     "fetch:adb": "node scripts/fetch-platform-tools.mjs",
-    "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "tauri:package:mac": "node scripts/package-tauri.mjs --platform macos",
     "tauri:package:windows": "node scripts/package-tauri.mjs --platform windows",
     "tauri:package:linux": "node scripts/package-tauri.mjs --platform linux"
   },
-  "build": {
-    "appId": "com.gzq.okhttpdebug.desktop",
-    "productName": "OkHttp Debug Desktop",
-    "asar": true,
-    "files": [
-      "dist/**",
-      "dist-electron/**",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "resources/platform-tools",
-        "to": "platform-tools",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
-    "mac": {
-      "target": [
-        "dmg",
-        "zip"
-      ],
-      "category": "public.app-category.developer-tools"
-    },
-    "win": {
-      "target": [
-        "nsis",
-        "portable",
-        "zip"
-      ]
-    },
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb",
-        "rpm",
-        "tar.gz"
-      ],
-      "category": "Development"
-    },
-    "directories": {
-      "output": "release"
-    }
-  },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
-    "@vitejs/plugin-react": "^5.0.0",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "ws": "^8.17.1"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^20.14.10",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "@types/ws": "^8.5.10",
-    "concurrently": "^8.2.2",
-    "cross-env": "^7.0.3",
-    "electron": "^31.2.0",
-    "electron-builder": "^24.13.3",
+    "@vitejs/plugin-react": "^5.0.0",
     "typescript": "^5.5.3",
-    "vite": "^5.4.0",
-    "wait-on": "^7.2.0"
+    "vite": "^5.4.0"
   }
 }

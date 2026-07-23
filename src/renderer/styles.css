@@ -627,9 +627,12 @@ body.is-resizing {
 .request-row {
   display: grid;
   position: relative;
-  gap: 7px;
+  flex: 0 0 auto;
+  align-content: start;
+  gap: 8px;
+  min-height: 132px;
   overflow: hidden;
-  padding: 12px;
+  padding: 12px 13px;
   border-bottom: 1px solid #eef2f7;
   background: #ffffff;
   text-align: left;
@@ -667,13 +670,42 @@ body.is-resizing {
     inset 0 0 0 2px rgba(249, 115, 22, 0.25);
 }
 
-.request-row strong,
 .details-title h2 {
   overflow: hidden;
   min-width: 0;
   margin: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.request-url-lines {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.request-path,
+.request-host {
+  display: block;
+  overflow: hidden;
+  min-width: 0;
+  margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.request-path {
+  color: #172033;
+  font-size: 15px;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+.request-host {
+  color: #657084;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.25;
 }
 
 .row-top,
@@ -685,6 +717,10 @@ body.is-resizing {
   min-width: 0;
 }
 
+.row-top {
+  flex-wrap: nowrap;
+}
+
 .row-bottom {
   justify-content: space-between;
 }
@@ -692,8 +728,11 @@ body.is-resizing {
 .source-chip-row {
   display: flex;
   min-width: 0;
+  min-height: 21px;
+  max-height: 47px;
   flex-wrap: wrap;
   gap: 5px;
+  overflow: hidden;
 }
 
 .request-row .source-chip {
@@ -767,7 +806,11 @@ body.is-resizing {
 
 .duration {
   margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .method,
@@ -775,6 +818,7 @@ body.is-resizing {
 .stage-pill,
 .scheme-pill {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   height: 22px;
   padding: 0 7px;

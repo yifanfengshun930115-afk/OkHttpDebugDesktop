@@ -1717,8 +1717,14 @@ function App() {
                       <span className="scheme-pill">{getScheme(capture.request.url)}</span>
                       <span className="duration">{formatDuration(capture.durationMs)}</span>
                     </div>
-                    <strong>{getPath(capture.request.url)}</strong>
-                    <span>{getHost(capture.request.url)}</span>
+                    <div className="request-url-lines">
+                      <strong className="request-path" title={getPath(capture.request.url)}>
+                        {getPath(capture.request.url)}
+                      </strong>
+                      <span className="request-host" title={getHost(capture.request.url)}>
+                        {getHost(capture.request.url)}
+                      </span>
+                    </div>
                     <div className="source-chip-row">
                       {sourceChips.map((chip) => (
                         <span key={chip.kind} className={`source-chip source-chip-${chip.kind}`} title={chip.title}>

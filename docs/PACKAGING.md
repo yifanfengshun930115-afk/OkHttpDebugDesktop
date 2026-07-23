@@ -1,7 +1,6 @@
 # Packaging
 
-This project currently ships the Tauri desktop app. The old Electron packaging
-scripts are still present for comparison, but product packages should use the
+This project ships the Tauri desktop app. Product packages should use the
 `tauri:package:*` scripts below.
 
 ## Speed
@@ -48,8 +47,8 @@ Manual build:
 Release build:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 Pushing a `v*` tag builds all desktop platforms and uploads the DMG/EXE/AppImage/deb

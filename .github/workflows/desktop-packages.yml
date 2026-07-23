@@ -9,7 +9,7 @@ on:
         type: boolean
         default: false
       release_tag:
-        description: 'Existing tag to publish when manually dispatching, for example v0.1.0.'
+        description: 'Existing tag to publish when manually dispatching, for example v0.1.1.'
         required: false
         type: string
   push:
@@ -102,8 +102,6 @@ jobs:
           workspaces: src-tauri -> target
 
       - name: Install dependencies
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
         run: npm ci --prefer-offline --no-audit
 
       - name: Fetch Android Platform-Tools
@@ -127,6 +125,11 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
       - name: Download package artifacts
         uses: actions/download-artifact@v8
         with:

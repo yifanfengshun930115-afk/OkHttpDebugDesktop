@@ -1,10 +1,28 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import type { DesktopApi } from '../shared/ipc.js';
 import type { AdbCommandResult, DesktopState, DiagnosticsInfo, ExportResult, LogActionResult } from '../shared/protocol.js';
 
 const STATE_CHANGED_EVENT = 'state_changed';
+
+export interface DesktopApi {
+  getState(): Promise<DesktopState>;
+  onStateChanged(callback: (state: DesktopState) => void): () => void;
+  clearCaptures(): Promise<DesktopState>;
+  exportJson(): Promise<ExportResult>;
+  openLogDir(): Promise<LogActionResult>;
+  clearLogs(): Promise<LogActionResult>;
+  getDiagnostics(): Promise<DiagnosticsInfo>;
+  reportRendererError(payload: {
+    message: string;
+    stack?: string;
+    source?: string;
+    lineno?: number;
+    colno?: number;
+  }): Promise<LogActionResult>;
+  adbListDevices(): Promise<AdbCommandResult>;
+  adbReverse(serial?: string, hostPort?: number, devicePort?: number): Promise<AdbCommandResult>;
+}
 
 const tauriApi: DesktopApi = {
   getState: () => invoke<DesktopState>('get_state'),
@@ -43,9 +61,6 @@ export function isTauriRuntime() {
 }
 
 export function resolveDesktopApi(): DesktopApi | undefined {
-  if (window.okhttpDebug) {
-    return window.okhttpDebug;
-  }
   return isTauriRuntime() ? tauriApi : undefined;
 }
 
