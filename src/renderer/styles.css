@@ -967,12 +967,27 @@ body.is-resizing {
 .stage-pill {
   background: #eef2ff;
   color: #3730a3;
-  text-transform: capitalize;
+  text-transform: none;
+}
+
+.stage-plain {
+  background: #eef2ff;
+  color: #3730a3;
 }
 
 .stage-wire {
   background: #fef3c7;
   color: #92400e;
+}
+
+.stage-custom {
+  background: #e0f2fe;
+  color: #075985;
+}
+
+.stage-transformer-error {
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .scheme-pill {
@@ -1354,7 +1369,7 @@ body.is-resizing {
 .stage-card-grid {
   display: grid;
   flex: 1 1 auto;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 10px;
   min-height: 0;
 }
@@ -1373,6 +1388,15 @@ body.is-resizing {
 
 .stage-card-wire {
   background: #fffaf0;
+}
+
+.stage-card-custom {
+  background: #f0f9ff;
+}
+
+.stage-card-transformer-error {
+  border-color: #fecaca;
+  background: #fff7f7;
 }
 
 .stage-card-top {

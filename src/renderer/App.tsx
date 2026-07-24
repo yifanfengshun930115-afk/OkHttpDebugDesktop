@@ -52,7 +52,7 @@ import './styles.css';
 
 type DetailTab = 'overview' | 'compare' | 'headers' | 'request' | 'response' | 'timing' | 'error';
 type StatusFilter = 'all' | 'success' | 'error' | 'failed';
-type StageFilter = 'all' | 'plain' | 'wire' | 'dual';
+type StageFilter = string;
 type BodyMode = 'pretty' | 'raw';
 type UpdateCheckStatus = 'idle' | 'checking' | 'current' | 'available' | 'error';
 type UpdateInstallStatus = 'idle' | 'downloading' | 'installing' | 'error';
@@ -578,6 +578,31 @@ function statusText(status: StatusFilter) {
   return status;
 }
 
+function stageLabel(stage: string) {
+  if (stage === 'plain') {
+    return '原文';
+  }
+  if (stage === 'wire') {
+    return '传输';
+  }
+  if (stage === 'article-decoded') {
+    return '文章解密';
+  }
+  if (stage === 'transformer-error') {
+    return '扩展异常';
+  }
+  return stage;
+}
+
+function isBusinessStage(stage: string) {
+  return stage !== 'plain' && stage !== 'wire' && stage !== 'transformer-error';
+}
+
+function isDecodedStage(stage: string) {
+  const normalized = stage.toLowerCase();
+  return normalized.includes('decoded') || normalized.includes('decrypted') || stage.includes('解密') || stage.includes('解码');
+}
+
 function stageText(stage: StageFilter) {
   if (stage === 'all') {
     return '全阶段';
@@ -585,7 +610,20 @@ function stageText(stage: StageFilter) {
   if (stage === 'dual') {
     return '已配对';
   }
-  return stage === 'plain' ? '明文' : '传输';
+  return stageLabel(stage);
+}
+
+function stageClass(stage: string) {
+  if (stage === 'plain') {
+    return 'stage-plain';
+  }
+  if (stage === 'wire') {
+    return 'stage-wire';
+  }
+  if (stage === 'transformer-error') {
+    return 'stage-transformer-error';
+  }
+  return 'stage-custom';
 }
 
 function captureGroupId(capture: CaptureRecord) {
@@ -597,14 +635,36 @@ function captureStageKey(capture: CaptureRecord) {
 }
 
 function captureStageLabel(capture: CaptureRecord) {
-  const stage = captureStageKey(capture);
+  return stageLabel(captureStageKey(capture));
+}
+
+function stageSortWeight(stage: string) {
+  if (isBusinessStage(stage) && isDecodedStage(stage)) {
+    return 0;
+  }
+  if (isBusinessStage(stage)) {
+    return 1;
+  }
   if (stage === 'plain') {
-    return '明文';
+    return 10;
   }
   if (stage === 'wire') {
-    return '传输';
+    return 11;
   }
-  return stage;
+  if (stage === 'transformer-error') {
+    return 99;
+  }
+  return 50;
+}
+
+function sortCaptureRecords(records: CaptureRecord[]) {
+  return [...records].sort((left, right) => {
+    const stageOrder = stageSortWeight(left.stage) - stageSortWeight(right.stage);
+    if (stageOrder !== 0) {
+      return stageOrder;
+    }
+    return captureReceivedAt(left) - captureReceivedAt(right);
+  });
 }
 
 function choosePrimary(records: CaptureRecord[]) {
@@ -612,6 +672,14 @@ function choosePrimary(records: CaptureRecord[]) {
     records.find((capture) => capture.stage === 'plain') ??
     records.find((capture) => capture.stage === 'wire') ??
     records[0]
+  );
+}
+
+function chooseDefaultDetail(records: CaptureRecord[]) {
+  return (
+    records.find((capture) => isBusinessStage(capture.stage) && isDecodedStage(capture.stage)) ??
+    records.find((capture) => isBusinessStage(capture.stage)) ??
+    choosePrimary(records)
   );
 }
 
@@ -627,12 +695,15 @@ function groupCaptures(captures: CaptureRecord[]): CaptureGroup[] {
   }
 
   return [...groups.entries()]
-    .map(([id, records]) => ({
-      id,
-      records,
-      primary: choosePrimary(records),
-      lastReceivedAtEpochMs: records.reduce((latest, capture) => Math.max(latest, captureReceivedAt(capture)), 0)
-    }))
+    .map(([id, records]) => {
+      const orderedRecords = sortCaptureRecords(records);
+      return {
+        id,
+        records: orderedRecords,
+        primary: choosePrimary(orderedRecords),
+        lastReceivedAtEpochMs: orderedRecords.reduce((latest, capture) => Math.max(latest, captureReceivedAt(capture)), 0)
+      };
+    })
     .filter((group): group is CaptureGroup => Boolean(group.primary))
     .sort((a, b) => b.lastReceivedAtEpochMs - a.lastReceivedAtEpochMs);
 }
@@ -947,9 +1018,9 @@ function StageCard({ capture }: { capture: CaptureRecord }) {
   const requestSummary = requestJson === undefined ? measuredBodySize(capture.request.body, capture.request.contentLength) : summarizeJson(requestJson);
   const responseSummary = responseJson === undefined ? measuredBodySize(capture.response?.body, capture.response?.contentLength) : summarizeJson(responseJson);
   return (
-    <article className={`stage-card stage-card-${capture.stage}`}>
+    <article className={`stage-card ${stageClass(capture.stage).replace('stage-', 'stage-card-')}`}>
       <div className="stage-card-top">
-        <span className={`stage-pill stage-${capture.stage}`}>{captureStageLabel(capture)}</span>
+        <span className={`stage-pill ${stageClass(capture.stage)}`}>{captureStageLabel(capture)}</span>
         <StatusPill capture={capture} />
         <strong>{formatDuration(capture.durationMs)}</strong>
         <span>请求 {requestSummary}</span>
@@ -973,7 +1044,16 @@ function StageCard({ capture }: { capture: CaptureRecord }) {
 function StageCompare({ group }: { group: CaptureGroup }) {
   const plain = group.records.find((capture) => capture.stage === 'plain');
   const wire = group.records.find((capture) => capture.stage === 'wire');
+  const stageNames = group.records.map(captureStageLabel).join(' / ');
   const insights = [
+    {
+      label: '阶段记录',
+      value: `${group.records.length} 条`
+    },
+    {
+      label: '阶段列表',
+      value: stageNames || '-'
+    },
     {
       label: '请求转换',
       value:
@@ -988,10 +1068,6 @@ function StageCompare({ group }: { group: CaptureGroup }) {
           ? '不同'
           : '一致'
     },
-    {
-      label: '阶段记录',
-      value: `${group.records.length} 条`
-    }
   ];
 
   return (
@@ -1005,8 +1081,9 @@ function StageCompare({ group }: { group: CaptureGroup }) {
         ))}
       </div>
       <div className="stage-card-grid">
-        {plain ? <StageCard capture={plain} /> : <div className="missing-stage">缺少明文阶段。</div>}
-        {wire ? <StageCard capture={wire} /> : <div className="missing-stage">缺少传输阶段。</div>}
+        {group.records.map((record) => (
+          <StageCard key={record.id} capture={record} />
+        ))}
       </div>
     </div>
   );
@@ -1253,6 +1330,16 @@ function App() {
     () => ['all', ...Array.from(new Set(captureGroups.map((group) => group.primary.request.method.toUpperCase()))).sort()],
     [captureGroups]
   );
+  const stageFilters = useMemo(() => {
+    const customStages = Array.from(
+      new Set(
+        captureGroups
+          .flatMap((group) => group.records.map((record) => record.stage))
+          .filter((stage) => stage !== 'plain' && stage !== 'wire')
+      )
+    ).sort((left, right) => stageLabel(left).localeCompare(stageLabel(right)));
+    return ['all', 'dual', 'plain', 'wire', ...customStages];
+  }, [captureGroups]);
   const deviceFilters = useMemo(() => buildFacetOptions(captureGroups, deviceFacet), [captureGroups]);
   const appFilters = useMemo(() => buildFacetOptions(captureGroups, appFacet), [captureGroups]);
 
@@ -1267,6 +1354,12 @@ function App() {
       setAppFilter('all');
     }
   }, [appFilter, appFilters]);
+
+  useEffect(() => {
+    if (!stageFilters.includes(stageFilter)) {
+      setStageFilter('all');
+    }
+  }, [stageFilter, stageFilters]);
 
   const stats = useMemo(() => {
     const primaries = captureGroups.map((group) => group.primary);
@@ -1357,7 +1450,7 @@ function App() {
     captureGroups[0];
   const selected =
     selectedGroup?.records.find((capture) => selectedStageKey && captureStageKey(capture) === selectedStageKey) ??
-    selectedGroup?.primary;
+    (selectedGroup ? chooseDefaultDetail(selectedGroup.records) : undefined);
 
   async function checkForUpdates(manual = true) {
     if (!api) {
@@ -1989,7 +2082,7 @@ function App() {
 
         <div className="sub-toolbar">
           <div className="mini-segmented" aria-label="阶段筛选">
-            {(['all', 'dual', 'plain', 'wire'] as StageFilter[]).map((filter) => (
+            {stageFilters.map((filter) => (
               <button key={filter} type="button" className={filter === stageFilter ? 'active' : ''} onClick={() => setStageFilter(filter)}>
                 <Columns3 size={14} />
                 {stageText(filter)}
@@ -2082,7 +2175,7 @@ function App() {
                       <small title="桌面端接收时间">{formatTime(group.lastReceivedAtEpochMs)}</small>
                       <div className="stage-strip">
                         {group.records.map((record) => (
-                          <span key={record.id} className={`stage-pill stage-${captureStageKey(record)}`}>
+                          <span key={record.id} className={`stage-pill ${stageClass(captureStageKey(record))}`}>
                             {captureStageLabel(record)}
                           </span>
                         ))}
@@ -2113,7 +2206,7 @@ function App() {
                       <span className={methodClass(selected.request.method)}>{selected.request.method}</span>
                       <h2>{getPath(selected.request.url)}</h2>
                       <StatusPill capture={selected} />
-                      <span className={`stage-pill stage-${captureStageKey(selected)}`}>{captureStageLabel(selected)}</span>
+                      <span className={`stage-pill ${stageClass(captureStageKey(selected))}`}>{captureStageLabel(selected)}</span>
                       {selected.error ? <AlertTriangle className="warning-icon" size={18} /> : null}
                     </div>
                     <p title={selected.request.url}>{selected.request.url}</p>

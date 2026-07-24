@@ -7,7 +7,7 @@ export type ProtocolMessageType = 'hello' | 'capture' | 'ping' | 'pong';
 
 export type HeaderValue = string | string[];
 export type HeadersRecord = Record<string, HeaderValue>;
-export type CaptureStage = 'plain' | 'wire';
+export type CaptureStage = string;
 
 export interface AndroidAppInfo {
   packageName: string;
