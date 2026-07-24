@@ -190,6 +190,30 @@ export interface UpdateCheckResult {
   error?: string;
 }
 
+export interface ExternalOpenResult {
+  ok: boolean;
+  message: string;
+  error?: string;
+}
+
+export type UpdateInstallStage = 'downloading' | 'downloaded' | 'installing';
+
+export interface UpdateInstallProgress {
+  stage: UpdateInstallStage;
+  downloadedBytes: number;
+  totalBytes?: number;
+  percent?: number;
+  message: string;
+  filePath?: string;
+}
+
+export interface UpdateInstallResult {
+  ok: boolean;
+  message: string;
+  filePath?: string;
+  error?: string;
+}
+
 export interface AdbDevice {
   serial: string;
   state: string;

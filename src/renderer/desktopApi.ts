@@ -1,9 +1,20 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import type { AdbCommandResult, DesktopState, DiagnosticsInfo, ExportResult, LogActionResult, UpdateCheckResult } from '../shared/protocol.js';
+import type {
+  AdbCommandResult,
+  DesktopState,
+  DiagnosticsInfo,
+  ExportResult,
+  ExternalOpenResult,
+  LogActionResult,
+  UpdateCheckResult,
+  UpdateInstallProgress,
+  UpdateInstallResult
+} from '../shared/protocol.js';
 
 const STATE_CHANGED_EVENT = 'state_changed';
+const UPDATE_INSTALL_PROGRESS_EVENT = 'update://install-progress';
 
 export interface DesktopApi {
   getState(): Promise<DesktopState>;
@@ -14,6 +25,8 @@ export interface DesktopApi {
   clearLogs(): Promise<LogActionResult>;
   getDiagnostics(): Promise<DiagnosticsInfo>;
   checkForUpdates(): Promise<UpdateCheckResult>;
+  installUpdate(downloadUrl: string, assetName?: string): Promise<UpdateInstallResult>;
+  onUpdateInstallProgress(callback: (progress: UpdateInstallProgress) => void): () => void;
   reportRendererError(payload: {
     message: string;
     stack?: string;
@@ -21,7 +34,7 @@ export interface DesktopApi {
     lineno?: number;
     colno?: number;
   }): Promise<LogActionResult>;
-  openExternalUrl(url: string): Promise<LogActionResult>;
+  openExternalUrl(url: string): Promise<ExternalOpenResult>;
   adbListDevices(): Promise<AdbCommandResult>;
   adbReverse(serial?: string, hostPort?: number, devicePort?: number): Promise<AdbCommandResult>;
 }
@@ -53,8 +66,29 @@ const tauriApi: DesktopApi = {
   clearLogs: () => invoke<LogActionResult>('clear_logs'),
   getDiagnostics: () => invoke<DiagnosticsInfo>('get_diagnostics'),
   checkForUpdates: () => invoke<UpdateCheckResult>('check_for_updates'),
+  installUpdate: (downloadUrl: string, assetName?: string) =>
+    invoke<UpdateInstallResult>('install_update', { downloadUrl, assetName }),
+  onUpdateInstallProgress: (callback: (progress: UpdateInstallProgress) => void) => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void listen<UpdateInstallProgress>(UPDATE_INSTALL_PROGRESS_EVENT, (event) => {
+      callback(event.payload);
+    }).then((nextUnlisten) => {
+      if (disposed) {
+        nextUnlisten();
+      } else {
+        unlisten = nextUnlisten;
+      }
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  },
   reportRendererError: (payload) => invoke<LogActionResult>('report_renderer_error', { payload }),
-  openExternalUrl: (url) => invoke<LogActionResult>('open_external_url', { url }),
+  openExternalUrl: (url) => invoke<ExternalOpenResult>('open_external_url', { url }),
   adbListDevices: () => invoke<AdbCommandResult>('adb_list_devices'),
   adbReverse: (serial?: string, hostPort?: number, devicePort?: number) =>
     invoke<AdbCommandResult>('adb_reverse', { serial, hostPort, devicePort })

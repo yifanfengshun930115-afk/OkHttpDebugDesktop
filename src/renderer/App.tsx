@@ -33,7 +33,13 @@ import {
   Usb,
   X
 } from 'lucide-react';
-import type { AdbDevice, CaptureRecord, DesktopState, HeadersRecord } from '../shared/protocol.js';
+import type {
+  AdbDevice,
+  CaptureRecord,
+  DesktopState,
+  HeadersRecord,
+  UpdateInstallProgress
+} from '../shared/protocol.js';
 import { DEFAULT_WS_PORT, DEFAULT_WS_PORT_RANGE_END } from '../shared/protocol.js';
 import {
   closeTauriApp,
@@ -49,6 +55,7 @@ type StatusFilter = 'all' | 'success' | 'error' | 'failed';
 type StageFilter = 'all' | 'plain' | 'wire' | 'dual';
 type BodyMode = 'pretty' | 'raw';
 type UpdateCheckStatus = 'idle' | 'checking' | 'current' | 'available' | 'error';
+type UpdateInstallStatus = 'idle' | 'downloading' | 'installing' | 'error';
 
 const RELEASE_PAGE_URL = 'https://github.com/yifanfengshun930115-afk/OkHttpDebugDesktop/releases/latest';
 
@@ -89,6 +96,16 @@ interface UpdateCheckState {
   assetSizeBytes?: number;
   checkedAtEpochMs?: number;
   message: string;
+}
+
+interface UpdateInstallState {
+  open: boolean;
+  status: UpdateInstallStatus;
+  message: string;
+  downloadedBytes: number;
+  totalBytes?: number;
+  percent?: number;
+  filePath?: string;
 }
 
 interface BodyInspectorProps {
@@ -195,6 +212,13 @@ function formatBytes(bytes?: number) {
     return `${(bytes / 1024).toFixed(1)} KB`;
   }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatPercent(percent?: number) {
+  if (typeof percent !== 'number' || !Number.isFinite(percent)) {
+    return undefined;
+  }
+  return `${Math.max(0, Math.min(100, percent)).toFixed(0)}%`;
 }
 
 function measuredBodySize(body?: string, contentLength?: number) {
@@ -1014,6 +1038,12 @@ function App() {
     releaseUrl: RELEASE_PAGE_URL,
     message: '启动后会自动检查 GitHub Release。'
   });
+  const [updateInstall, setUpdateInstall] = useState<UpdateInstallState>({
+    open: false,
+    status: 'idle',
+    message: '',
+    downloadedBytes: 0
+  });
   const knownGroupIdsRef = useRef<Set<string>>(new Set());
   const groupTrackingReadyRef = useRef(false);
   const newGroupTimeoutsRef = useRef<Map<string, number>>(new Map());
@@ -1136,6 +1166,23 @@ function App() {
   }, [isResizing]);
 
   useEffect(() => onDesktopCloseRequested(() => setExitConfirmOpen(true)), []);
+
+  useEffect(() => {
+    if (!api) {
+      return undefined;
+    }
+    return api.onUpdateInstallProgress((progress: UpdateInstallProgress) => {
+      setUpdateInstall((current) => ({
+        open: true,
+        status: progress.stage === 'installing' ? 'installing' : 'downloading',
+        message: progress.message,
+        downloadedBytes: progress.downloadedBytes,
+        totalBytes: progress.totalBytes ?? current.totalBytes,
+        percent: progress.percent ?? current.percent,
+        filePath: progress.filePath ?? current.filePath
+      }));
+    });
+  }, [api]);
 
   useEffect(() => {
     if (!api) {
@@ -1386,11 +1433,40 @@ function App() {
   }
 
   async function downloadUpdateAsset() {
+    if (!api) {
+      setNoticeMessage('应用内更新仅在桌面应用中可用。');
+      return;
+    }
     if (!updateCheck.assetDownloadUrl) {
       setNoticeMessage('没有找到适配当前系统的安装包，请打开 Release 页面手动选择。');
       return;
     }
-    await openUpdateUrl(updateCheck.assetDownloadUrl, '已在浏览器中打开安装包下载链接。');
+
+    setUpdateInstall({
+      open: true,
+      status: 'downloading',
+      message: '准备下载安装包。',
+      downloadedBytes: 0,
+      totalBytes: updateCheck.assetSizeBytes,
+      percent: 0,
+      filePath: undefined
+    });
+
+    try {
+      const result = await api.installUpdate(updateCheck.assetDownloadUrl, updateCheck.assetName);
+      if (!result.ok) {
+        throw new Error(result.error ?? result.message);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setUpdateInstall((current) => ({
+        ...current,
+        open: true,
+        status: 'error',
+        message
+      }));
+      setNoticeMessage(message);
+    }
   }
 
   async function openReleasePage() {
@@ -1558,7 +1634,24 @@ function App() {
         ? '正在等待服务'
         : '等待 USB 设备';
   const updateChecking = updateCheck.status === 'checking';
+  const updateInstalling = updateInstall.status === 'downloading' || updateInstall.status === 'installing';
   const updateLastChecked = updateCheck.checkedAtEpochMs ? formatTime(updateCheck.checkedAtEpochMs) : '';
+  const updatePercentLabel = formatPercent(updateInstall.percent);
+  const updateProgressWidth = `${Math.max(4, Math.min(100, updateInstall.percent ?? 12))}%`;
+  const updateDownloadedLabel = updateInstall.downloadedBytes > 0 ? formatBytes(updateInstall.downloadedBytes) : '0 B';
+  const updateTotalLabel = updateInstall.totalBytes ? formatBytes(updateInstall.totalBytes) : '';
+  const updateActionIsInstall = updateCheck.status === 'available';
+  const updateActionDisabled =
+    updateChecking ||
+    updateInstalling ||
+    (updateActionIsInstall && !updateCheck.assetDownloadUrl);
+  const updateActionLabel = updateInstalling
+    ? '更新中'
+    : updateActionIsInstall
+      ? '更新'
+      : updateChecking
+        ? '检查中'
+        : '检查更新';
 
   return (
     <div className={`app ${isResizing ? 'resizing' : ''}`}>
@@ -1585,6 +1678,63 @@ function App() {
                 取消
               </button>
             </div>
+          </section>
+        </div>
+      ) : null}
+      {updateInstall.open ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="update-dialog" role="dialog" aria-modal="true" aria-labelledby="update-dialog-title">
+            <div className="update-dialog-header">
+              <div>
+                <h2 id="update-dialog-title">
+                  {updateInstall.status === 'error' ? '更新失败' : '正在更新 OkHttp Debug Desktop'}
+                </h2>
+                <p>{updateInstall.message}</p>
+              </div>
+              {updateInstall.status === 'error' ? (
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="关闭更新弹窗"
+                  onClick={() => setUpdateInstall((current) => ({ ...current, open: false }))}
+                >
+                  <X size={16} />
+                </button>
+              ) : null}
+            </div>
+            <div
+              className="update-progress-track"
+              role="progressbar"
+              aria-valuemax={100}
+              aria-valuemin={0}
+              aria-valuenow={typeof updateInstall.percent === 'number' ? Math.round(updateInstall.percent) : undefined}
+            >
+              <span className={updatePercentLabel ? undefined : 'indeterminate'} style={{ width: updateProgressWidth }} />
+            </div>
+            <div className="update-progress-meta">
+              <span>
+                {updateDownloadedLabel}
+                {updateTotalLabel ? ` / ${updateTotalLabel}` : ''}
+              </span>
+              <strong>{updatePercentLabel ?? '下载中'}</strong>
+            </div>
+            {updateInstall.filePath ? (
+              <p className="update-file-path" title={updateInstall.filePath}>
+                {updateInstall.filePath}
+              </p>
+            ) : null}
+            {updateInstall.status === 'error' ? (
+              <div className="confirm-actions">
+                <button type="button" onClick={() => setUpdateInstall((current) => ({ ...current, open: false }))}>
+                  关闭
+                </button>
+                <button type="button" onClick={() => void openReleasePage()}>
+                  打开 Release 页面
+                </button>
+              </div>
+            ) : (
+              <p className="hint-text">下载完成后会自动启动安装流程，安装前会移除 USB 映射并关闭当前应用。</p>
+            )}
           </section>
         </div>
       ) : null}
@@ -1631,15 +1781,21 @@ function App() {
           ) : null}
           {updateLastChecked ? <p className="hint-text">最近检查 {updateLastChecked}</p> : null}
           <div className="utility-actions">
-            <button type="button" disabled={updateChecking} onClick={() => void checkForUpdates(true)}>
-              <RefreshCw size={15} />
-              {updateChecking ? '检查中' : '检查更新'}
+            <button
+              type="button"
+              disabled={updateActionDisabled}
+              onClick={() => {
+                if (updateActionIsInstall) {
+                  void downloadUpdateAsset();
+                } else {
+                  void checkForUpdates(true);
+                }
+              }}
+            >
+              {updateActionIsInstall || updateInstalling ? <Download size={15} /> : <RefreshCw size={15} />}
+              {updateActionLabel}
             </button>
-            <button type="button" disabled={!updateCheck.assetDownloadUrl || updateCheck.status !== 'available'} onClick={() => void downloadUpdateAsset()}>
-              <Download size={15} />
-              下载适配包
-            </button>
-            <button type="button" onClick={() => void openReleasePage()}>
+            <button type="button" disabled={updateInstalling} onClick={() => void openReleasePage()}>
               <ExternalLink size={15} />
               Release 页面
             </button>
